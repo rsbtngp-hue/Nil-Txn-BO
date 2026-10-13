@@ -28,7 +28,7 @@ button.secondary{color:var(--blue);background:#fff}
 button.danger{background:#d64545;border-color:#d64545}
 .note{font-size:12px;color:var(--muted);margin-top:10px}
 .status{font-size:12px;color:#16803a;min-height:16px;margin-top:8px}
-.cards{display:grid;grid-template-columns:repeat(6,minmax(155px,1fr));gap:13px;margin:16px 0}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:16px 0}
 .card{border-radius:12px;padding:15px;color:#fff;min-height:102px;position:relative;overflow:hidden}
 .card:focus-visible{outline:3px solid #ffdf6e;outline-offset:3px}.card:after{content:'';position:absolute;width:80px;height:80px;border-radius:50%;background:#fff2;right:-22px;top:-25px}
 .card .num{font-size:29px;font-weight:bold;margin-top:8px}
@@ -90,8 +90,8 @@ tbody tr:nth-child(even){background:#f8fbff}tbody tr:hover{background:#edf6ff}
 .modal-backdrop{position:fixed;inset:0;background:#102a4388;z-index:9999;display:none;align-items:center;justify-content:center;padding:18px}
 .modal{background:#fff;width:min(1200px,98vw);max-height:92vh;display:flex;flex-direction:column;border-radius:12px;box-shadow:0 18px 55px #0004;overflow:hidden}
 .modal-head{padding:14px 18px;background:#102a43;color:white;display:flex;gap:12px;align-items:center}.modal-head h2{font-size:16px;margin:0 auto 0 0}.modal-body{padding:14px;overflow:auto}.modal-actions{display:flex;gap:8px;flex-wrap:wrap}
-@media(max-width:1050px){.cards{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:600px){.cards{grid-template-columns:repeat(2,1fr)}.hero h1{font-size:20px}}
+@media(max-width:1050px){.cards{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.cards .card{min-width:0}@media(max-width:600px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.hero h1{font-size:20px}}
 
 body[data-theme="forest"]{--bg:#eff8f2;--line:#c9e5d2;--blue:#16805d;--navy:#124b3a}
 body[data-theme="sunset"]{--bg:#fff5ef;--line:#f3d5c4;--blue:#c6532c;--navy:#79301c}
@@ -180,14 +180,7 @@ body[data-theme="violet"] .app-tab#tabNil{background:linear-gradient(125deg,#704
       <div class="tablebox"><table id="divisionTable"></table></div>
     </section>
     
-    <section class="panel">
-      <div class="section-head">
-        <h2>Offices with continuous nil transactions throughout the period</h2>
-        <button onclick="exportTable('detailTable','Continuous nil offices')" class="secondary">Excel</button>
-        <button onclick="pdfTable('detailTable','Continuous nil offices')" class="secondary">PDF</button>
-      </div>
-      <div class="tablebox"><table id="detailTable"></table></div>
-    </section>
+    
   </section>
   </div>
 
@@ -869,7 +862,6 @@ function buildReport(){
     $('period').innerHTML = `<b>No dated records:</b> No imported daily records fall between ${esc(start)} and ${esc(end)}.`;
     $('cards').innerHTML = '';
     table('divisionTable', ['Division','Total No. of BOs','No. of BOs continuously nil','CBS','PLI','Mail','MO','Stamp','IPPB'], []);
-    table('detailTable', ['Office ID','Office Name','Division','Sub Division','SO Name','CBS','PLI','Mail','MO','Stamp','IPPB','Complete days'], []);
     return;
   }
   let byOffice = new Map();
@@ -903,7 +895,9 @@ function buildReport(){
   
   $('period').innerHTML = `<b>Continuity test:</b> ${esc(start)} to ${esc(end)} · ${expected.length} uploaded reporting dates required. Current benchmark is <b>0 continuously nil offices</b>.`;
   
-  // KPI counts use the exact same continuous-nil result set as the division consolidation table.
+  // The Any continuous nil KPI means ALL six categories are nil for the entire selected period.
+  const allCategoryNil = result.filter(x => categories.every(([k]) => x[k] === true));
+  // Category KPI counts remain category-specific; Any counts only offices where CBS, PLI, Mail, MO, Stamp and IPPB are all continuously nil.
   let counts = categories.map(([k]) => new Set(result.filter(x => x[k] === true).map(x => String(x.office_id))).size);
   
   let cards = [
@@ -914,7 +908,7 @@ function buildReport(){
     ['MO nil offices', counts[3], 'c5'],
     ['Stamp nil offices', counts[4], 'c6'],
     ['IPPB nil offices', counts[5], 'c3'],
-    ['Any continuous nil', result.length, 'c1']
+    ['All-category continuous nil', allCategoryNil.length, 'c1']
   ];
   
   $('cards').innerHTML = cards.map((x,i) => { const catMap={1:'CBS',2:'PLI',3:'Mail',4:'MO',5:'Stamp',6:'IPPB',7:'Any'}; const cat=catMap[i]; const action=i===0 ? "openBpoList('TOTAL')" : `openNilDetails('TOTAL','${cat||'Any'}')`; return `<button type="button" class="card ${x[2]}" style="text-align:left;border:0;width:100%;cursor:pointer" onclick="${action}"><div>${x[0]}</div><div class="num">${x[1].toLocaleString()}</div></button>`; }).join('');
@@ -923,7 +917,7 @@ function buildReport(){
   const bposByDivision = {};
   bpos.forEach(o => { const n=o.division_name || 'Unmapped division'; bposByDivision[n]=(bposByDivision[n]||0)+1; });
   Object.keys(bposByDivision).forEach(n => { groups[n] = { total: new Set(), totalBOs: bposByDivision[n]||0, CBS: 0, PLI: 0, Mail: 0, MO: 0, Stamp: 0, IPPB: 0, Any: 0 }; });
-  result.forEach(r => {
+  allCategoryNil.forEach(r => {
     let n = r.division_name || 'Unmapped division';
     if(!groups[n]) groups[n] = { total: new Set(), totalBOs: bposByDivision[n]||0, CBS: 0, PLI: 0, Mail: 0, MO: 0, Stamp: 0, IPPB: 0, Any: 0 };
     let g = groups[n];
@@ -941,15 +935,6 @@ function buildReport(){
   const totals = divRows.reduce((t,g)=>{ t.totalBOs += g.totalBOs; t.total += g.Any; t.CBS += g.CBS; t.PLI += g.PLI; t.Mail += g.Mail; t.MO += g.MO; t.Stamp += g.Stamp; t.IPPB += g.IPPB; return t; },{totalBOs:0,total:0,CBS:0,PLI:0,Mail:0,MO:0,Stamp:0,IPPB:0});
   renderDivisionTable(divRows, totals, result);
   
-  table('detailTable', 
-    ['Office ID','Office Name','Division','Sub Division','SO Name','CBS','PLI','Mail','MO','Stamp','IPPB','Complete days'], 
-    result.sort((a,b) => (a.division_name||'').localeCompare(b.division_name||'')).map(r => [
-      r.office_id, r.office_name, r.division_name || 'Unmapped', r.sub_division_name || '—', r.so_name || '—',
-      r.cbs_nil_offices ? 'YES' : '', r.pli_nil_offices ? 'YES' : '',
-      r.mail_nil_offices ? 'YES' : '', r.mo_nil_offices ? 'YES' : '',
-      r.stamp_nil_offices ? 'YES' : '', r.ippb_nil_offices ? 'YES' : '', expected.length
-    ])
-  );
 }
 
 function table(id, heads, rows){
@@ -983,6 +968,7 @@ function renderDivisionTable(groups, totals, continuousRows){
   if(!groups.length) html+=`<tr><td class="empty" colspan="${heads.length}">No offices meet the continuous-nil condition for this period.</td></tr>`;
   $('divisionTable').innerHTML=html+'</tbody>';
   window.__continuousRows=continuousRows;
+  window.__allCategoryNilRows=continuousRows.filter(r=>categories.every(([k])=>r[k]===true));
 }
 function openBpoList(division){
   const selectedDivision=division;
@@ -1001,7 +987,7 @@ function openNilDetails(division, category){
   const keyMap={CBS:'cbs_nil_offices',PLI:'pli_nil_offices',Mail:'mail_nil_offices',MO:'mo_nil_offices',Stamp:'stamp_nil_offices',IPPB:'ippb_nil_offices'};
   const labelMap={CBS:'CBS',PLI:'PLI',Mail:'Mail',MO:'MO',Stamp:'Stamp',IPPB:'IPPB'};
   const from=$('from').value, to=$('to').value;
-  const matched=(window.__continuousRows||[]).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division) && (category==='Any' || r[keyMap[category]]===true));
+  const matched=(category==='Any'?(window.__allCategoryNilRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division));
   if(category==='Any'){
     detailRows=matched.map(r=>({'Office ID':r.office_id,'Office Name':r.office_name,'Division':r.division_name||'Unmapped','Sub Division':r.sub_division_name||'—','SO Name':r.so_name||'—','CBS':r.cbs_nil_offices?'YES':'','PLI':r.pli_nil_offices?'YES':'','Mail':r.mail_nil_offices?'YES':'','MO':r.mo_nil_offices?'YES':'','Stamp':r.stamp_nil_offices?'YES':'','IPPB':r.ippb_nil_offices?'YES':'','Remark':`Continuous for period (${from} to ${to})`}));
   } else {
