@@ -322,20 +322,57 @@ async function fetchGoogleMaster(){
   }
   throw lastErr||new Error('No Office Master download endpoint was available.');
 }
+async function fetchGoogleDataset(type){
+  if(!navigator.onLine)throw new Error('Browser is offline.');
+  const action=type==='daily'?'getDaily':'getBooking';
+  const sheet=type==='daily'?'Daily Nil Transactions':'BO Booking Performance';
+  const payload=await googleGet(action);
+  if(payload&&payload.ok===false)throw new Error(payload.error||('Google rejected '+action));
+  const rows=unwrapRows(payload);
+  if(!rows)throw new Error(action+' did not return a rows array for '+sheet+'.');
+  const matching=rows.filter(r=>type==='daily'
+    ? !!String(val(r,'office_id')||'').trim() && !!normalizeDate(val(r,'transac_date'))
+    : !!normalizeBookingOfficeId(bookingVal(r,'office_id')));
+  if(rows.length&&!matching.length)throw new Error('No valid records returned for '+sheet+'. Check the sheet headers.');
+  if(type==='daily'){
+    const pulled=matching.map(canonDaily).filter(r=>r.office_id&&r.transac_date);
+    const dirty=new Set(dirtyDailyMonths);
+    const merged=[...pulled.filter(r=>!dirty.has(String(r.transac_date||'').slice(0,7))),...daily.filter(r=>dirty.has(String(r.transac_date||'').slice(0,7)))];
+    daily=[...new Map(merged.map(r=>[r.office_id+'|'+r.transac_date,r])).values()];
+    await save();localStorage.setItem('nilBoDailySynced','1');
+    return {type,count:pulled.length,localCount:daily.length,sheet,action};
+  }
+  const parsed=parseBookingCsv(matching);
+  if(matching.length&&!parsed.rows.length)throw new Error('Booking rows returned but none matched Office Master BPO IDs; existing local data retained.');
+  if(!bookingDirty){
+    bookingRows=parsed.rows;bookingUploadAt='Downloaded from Google Sheets';
+    await save();localStorage.setItem('nilBoBookingSynced','1');renderBooking();
+  }
+  return {type,count:parsed.rows.length,localCount:bookingRows.length,sheet,action,localPending:bookingDirty};
+}
+async function downloadGoogleDailyAndBooking(){
+  const results=[],errors=[];
+  for(const type of ['daily','booking']){
+    try{results.push(await fetchGoogleDataset(type));}
+    catch(e){errors.push((type==='daily'?'Daily Nil Transactions':'BO Booking Performance')+': '+(e.message||e));}
+  }
+  render();renderBooking();
+  setLocalStatus('saved • '+daily.length.toLocaleString()+' daily rows • '+bookingRows.length.toLocaleString()+' booking offices',true);
+  return {results,errors};
+}
 async function startupSync(){
   updateNetworkStatus();restoreSyncTime();setSyncMessage('Opening local database…');
   await load();setLocalStatus(master.length?'loaded ('+master.length.toLocaleString()+' offices)':'ready',true);
   if(!navigator.onLine){setSyncMessage('Offline — using saved local data.','error');return;}
-  setSyncMessage('Downloading Office Master from Google Sheets…');
+  const messages=[];
   try{
-    const pulled=await fetchGoogleMaster();
-    if(pulled.count){setSyncMessage('Office Master downloaded from Google Sheets and saved locally ('+pulled.count.toLocaleString()+' offices). Daily-data sync has not been verified by this download.','ok');}
-    else if(master.length){setSyncMessage('Google Master endpoint returned no rows; existing local Office Master retained.','error');}
-    else {setSyncMessage('No Office Master rows returned. Please check the Apps Script read endpoint.','error');}
-  }catch(err){
-    setSyncMessage('Google Master download unavailable; local data retained. '+(err.message||err),'error');
-  }
-  if(bookingDirty && bookingRows.length && navigator.onLine){
+    const pulled=await fetchGoogleMaster();messages.push('Office Master downloaded '+pulled.count.toLocaleString()+' rows');
+  }catch(err){messages.push('Office Master download failed: '+(err.message||err));}
+  const data=await downloadGoogleDailyAndBooking();
+  data.results.forEach(x=>messages.push(x.sheet+' downloaded '+x.count.toLocaleString()+' rows and saved locally'));
+  data.errors.forEach(x=>messages.push(x));
+  setSyncMessage(messages.join(' • '),data.errors.length?'error':'ok');
+  if(bookingDirty&&bookingRows.length){
     try{await syncBookingToGoogle();}catch(err){$('bookingStatus').textContent='Booking data remains queued locally; Google sync could not be verified: '+(err.message||err);}
   }
 }
@@ -1071,54 +1108,54 @@ function gasCall(action,type,rows=[],months=[]){
 }
 async function getGoogleStatus(){return googleGet('status');}
 async function sync(){
-  if(!master.length&&!daily.length&&localStorage.getItem('nilBoMasterDirty')!=='1'){status('Nothing to sync. Import Office Master and Daily transaction CSV first.');return;}
-  const masterNeedsSync = (master.length>0 && !localStorage.getItem('nilBoMasterSynced')) || localStorage.getItem('nilBoMasterDirty')==='1';
-  const months = dirtyDailyMonths.length ? [...dirtyDailyMonths] : (daily.length && !localStorage.getItem('nilBoDailySynced') ? [...new Set(daily.map(x=>String(x.transac_date||'').slice(0,7)).filter(Boolean))] : []);
-  const batches=[];
-  if(masterNeedsSync) batches.push(['master',master,[]]);
-  if(months.length) batches.push(['daily',daily.filter(x=>months.includes(String(x.transac_date||'').slice(0,7))),months]);
-  if(!batches.length){
-    const msg='No local changes are queued. Google Sheets connectivity is checked separately; no new upload was required. Last verified sync: '+(localStorage.getItem('nilBoLastSyncTime')?new Date(localStorage.getItem('nilBoLastSyncTime')).toLocaleString():'not yet')+'.';
-    status(msg);
-    try{const st=await getGoogleStatus();setSyncMessage(`Google Sheets reachable • Office Master ${Number(st.masterRows||0).toLocaleString()} rows • Daily ${Number(st.dailyRows||0).toLocaleString()} rows. No pending changes.`, 'reachable');}
-    catch(e){setSyncMessage('No pending changes, but Google Sheets status could not be verified: '+(e.message||e),'error');}
-    return;
-  }
-  const expectedMaster=master.length;
-  const expectedMonthCounts={};
-  months.forEach(m=>expectedMonthCounts[m]=daily.filter(x=>String(x.transac_date||'').slice(0,7)===m).length);
-  const total=batches.reduce((n,x)=>n+x[1].length,0);let sent=0;
+  if(!navigator.onLine){status('Offline: local database remains available; connect to download Google Sheets data.');return;}
   $('syncBtn').disabled=true;
   try{
+    setSyncMessage('Downloading latest Google Sheets data…');
+    const issues=[];
+    if(localStorage.getItem('nilBoMasterDirty')!=='1'){
+      try{await fetchGoogleMaster();}catch(e){issues.push('Office Master: '+(e.message||e));}
+    }
+    const download=await downloadGoogleDailyAndBooking();
+    issues.push(...download.errors);
+    const masterNeedsSync=(master.length>0&&!localStorage.getItem('nilBoMasterSynced'))||localStorage.getItem('nilBoMasterDirty')==='1';
+    const months=dirtyDailyMonths.length?[...dirtyDailyMonths]:(daily.length&&!localStorage.getItem('nilBoDailySynced')?[...new Set(daily.map(x=>String(x.transac_date||'').slice(0,7)).filter(Boolean))]:[]);
+    const batches=[];
+    if(masterNeedsSync)batches.push(['master',master,[]]);
+    if(months.length)batches.push(['daily',daily.filter(x=>months.includes(String(x.transac_date||'').slice(0,7))),months]);
+    if(!batches.length){
+      let msg='Google download complete. Daily Nil Transactions: '+daily.length.toLocaleString()+' local rows; BO Booking Performance: '+bookingRows.length.toLocaleString()+' local offices.';
+      try{const st=await getGoogleStatus();msg+=' Remote counts — Office Master '+Number(st.masterRows||0).toLocaleString()+', Daily '+Number(st.dailyRows||0).toLocaleString()+', Booking '+Number(st.bookingRows||0).toLocaleString()+'.';}
+      catch(e){issues.push('Remote status verification: '+(e.message||e));}
+      if(issues.length)msg+=' Issues: '+issues.join(' | ');
+      status(msg);markSyncTime();setSyncMessage(msg,issues.length?'error':'ok');return;
+    }
+    const expectedMaster=master.length,expectedMonthCounts={};
+    months.forEach(m=>expectedMonthCounts[m]=daily.filter(x=>String(x.transac_date||'').slice(0,7)===m).length);
+    let sent=0;const total=batches.reduce((n,x)=>n+x[1].length,0);
     for(const [type,rows,monthList] of batches){
       await gasCall('beginSync',type,[],monthList);
       for(let i=0;i<rows.length;i+=250){
         await gasCall('saveBatch',type,rows.slice(i,i+250));
         sent+=Math.min(250,rows.length-i);
-        status(`Syncing ${type==='master'?'Office Master':`Daily transactions (${monthList.join(', ')})`} • ${sent.toLocaleString()} / ${total.toLocaleString()} rows submitted`);
+        status('Syncing '+type+' • '+sent.toLocaleString()+' / '+total.toLocaleString()+' rows');
       }
     }
     await save();
-    // Verify the remote spreadsheet after all POSTs. Only verified writes clear flags.
     const st=await getGoogleStatus();
-    const masterVerified=!masterNeedsSync || Number(st.masterRows)===expectedMaster;
-    const dailyVerified=!months.length || months.every(m=>Number((st.monthCounts||{})[m]||0)===expectedMonthCounts[m]);
-    if(!masterVerified||!dailyVerified){
-      const why=[];if(!masterVerified)why.push(`Office Master expected ${expectedMaster}, Google reports ${Number(st.masterRows||0)}`);
-      if(!dailyVerified)why.push('daily month counts do not match uploaded counts');
-      throw new Error('Google write was submitted but verification did not match: '+why.join('; ')+'. Pending flags retained.');
-    }
+    if(masterNeedsSync&&Number(st.masterRows)!==expectedMaster)throw new Error('Office Master verification mismatch: expected '+expectedMaster+', Google reports '+Number(st.masterRows||0)+'.');
+    if(months.length&&!months.every(m=>Number((st.monthCounts||{})[m]||0)===expectedMonthCounts[m]))throw new Error('Daily month counts do not match the uploaded records.');
     if(masterNeedsSync){localStorage.setItem('nilBoMasterSynced','1');localStorage.removeItem('nilBoMasterDirty');}
     if(months.length){dirtyDailyMonths=dirtyDailyMonths.filter(m=>!months.includes(m));localStorage.setItem('nilBoDailySynced','1');}
     await save();markSyncTime();
-    const msg=`Google Sheets sync verified • ${sent.toLocaleString()} rows submitted • Office Master ${Number(st.masterRows||0).toLocaleString()} rows • Daily ${Number(st.dailyRows||0).toLocaleString()} rows.`;
-    status(msg);setSyncMessage(msg,'ok');
+    let msg='Google upload verified ('+sent.toLocaleString()+' rows submitted). Daily Nil Transactions downloaded '+daily.length.toLocaleString()+' local rows; BO Booking Performance '+bookingRows.length.toLocaleString()+' local offices.';
+    if(issues.length)msg+=' Download issues: '+issues.join(' | ');
+    status(msg);setSyncMessage(msg,issues.length?'error':'ok');
   }catch(err){
-    status('Sync not verified: '+(err.message||err)+'. Pending changes retained; local data remains available.');
-    setSyncMessage('Google Sheets sync not verified. '+(err.message||err),'error');
+    status('Google download/sync not verified: '+(err.message||err)+'. Pending changes retained; local data remains available.');
+    setSyncMessage('Google Sheets download/sync not verified. '+(err.message||err),'error');
   }finally{$('syncBtn').disabled=false;}
 }
-
 $('syncBtn').onclick = sync;
 $('division').onchange=()=>{ $('subdivision').value='';$('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('subdivision').onchange=()=>{ $('so').value='';$('office').value='';refreshHierarchy();apply(); };
