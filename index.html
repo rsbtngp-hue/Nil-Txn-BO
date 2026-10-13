@@ -928,7 +928,7 @@ function buildReport(){
     g.MO += r.mo_nil_offices ? 1 : 0;
     g.Stamp += r.stamp_nil_offices ? 1 : 0;
     g.IPPB += r.ippb_nil_offices ? 1 : 0;
-    g.Any++;
+    if (categories.every(([k]) => r[k] === true)) g.Any++;
   });
   
   const divRows = Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).map(([n,g])=>({name:n, ...g}));
@@ -987,7 +987,7 @@ function openNilDetails(division, category){
   const keyMap={CBS:'cbs_nil_offices',PLI:'pli_nil_offices',Mail:'mail_nil_offices',MO:'mo_nil_offices',Stamp:'stamp_nil_offices',IPPB:'ippb_nil_offices'};
   const labelMap={CBS:'CBS',PLI:'PLI',Mail:'Mail',MO:'MO',Stamp:'Stamp',IPPB:'IPPB'};
   const from=$('from').value, to=$('to').value;
-  const matched=(category==='Any'?(window.__allCategoryNilRows||[]):category==='AnyCategory'?(window.__continuousRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division));
+  const matched=(category==='Any' || category==='AnyCategory'?(window.__allCategoryNilRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division));
   if(category==='Any'){
     detailRows=matched.map(r=>({'Office ID':r.office_id,'Office Name':r.office_name,'Division':r.division_name||'Unmapped','Sub Division':r.sub_division_name||'—','SO Name':r.so_name||'—','CBS':r.cbs_nil_offices?'YES':'','PLI':r.pli_nil_offices?'YES':'','Mail':r.mail_nil_offices?'YES':'','MO':r.mo_nil_offices?'YES':'','Stamp':r.stamp_nil_offices?'YES':'','IPPB':r.ippb_nil_offices?'YES':'','Remark':`Continuous for period (${from} to ${to})`}));
   } else {
