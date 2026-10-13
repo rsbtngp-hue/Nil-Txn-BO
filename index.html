@@ -917,7 +917,7 @@ function buildReport(){
   const bposByDivision = {};
   bpos.forEach(o => { const n=o.division_name || 'Unmapped division'; bposByDivision[n]=(bposByDivision[n]||0)+1; });
   Object.keys(bposByDivision).forEach(n => { groups[n] = { total: new Set(), totalBOs: bposByDivision[n]||0, CBS: 0, PLI: 0, Mail: 0, MO: 0, Stamp: 0, IPPB: 0, Any: 0 }; });
-  allCategoryNil.forEach(r => {
+  result.forEach(r => {
     let n = r.division_name || 'Unmapped division';
     if(!groups[n]) groups[n] = { total: new Set(), totalBOs: bposByDivision[n]||0, CBS: 0, PLI: 0, Mail: 0, MO: 0, Stamp: 0, IPPB: 0, Any: 0 };
     let g = groups[n];
@@ -956,13 +956,13 @@ function renderDivisionTable(groups, totals, continuousRows){
   groups.forEach(g=>{
     html+='<tr><td>'+esc(g.name)+'</td>';
     html+=`<td><button class="click-count" onclick="openBpoList(decodeURIComponent('${encodeURIComponent(g.name)}') )">${Number(g.totalBOs||0).toLocaleString()}</button></td>`;
-    html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${encodeURIComponent(g.name)}'),'Any')">${g.Any.toLocaleString()}</button></td>`;
+    html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${encodeURIComponent(g.name)}'),'AnyCategory')">${g.Any.toLocaleString()}</button></td>`;
     ['CBS','PLI','Mail','MO','Stamp','IPPB'].forEach(cat=>{ html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${encodeURIComponent(g.name)}'),'${cat}')">${g[cat].toLocaleString()}</button></td>`; });
     html+='</tr>';
   });
   html+='<tr class="total-row"><td>TOTAL</td>';
   html+=`<td><button class="click-count" onclick="openBpoList('TOTAL')">${Number(totals.totalBOs||0).toLocaleString()}</button></td>`;
-  html+=`<td><button class="click-count" onclick="openNilDetails('TOTAL','Any')">${totals.total.toLocaleString()}</button></td>`;
+  html+=`<td><button class="click-count" onclick="openNilDetails('TOTAL','AnyCategory')">${totals.total.toLocaleString()}</button></td>`;
   ['CBS','PLI','Mail','MO','Stamp','IPPB'].forEach(cat=>html+=`<td><button class="click-count" onclick="openNilDetails('TOTAL','${cat}')">${totals[cat].toLocaleString()}</button></td>`);
   html+='</tr>';
   if(!groups.length) html+=`<tr><td class="empty" colspan="${heads.length}">No offices meet the continuous-nil condition for this period.</td></tr>`;
@@ -987,7 +987,7 @@ function openNilDetails(division, category){
   const keyMap={CBS:'cbs_nil_offices',PLI:'pli_nil_offices',Mail:'mail_nil_offices',MO:'mo_nil_offices',Stamp:'stamp_nil_offices',IPPB:'ippb_nil_offices'};
   const labelMap={CBS:'CBS',PLI:'PLI',Mail:'Mail',MO:'MO',Stamp:'Stamp',IPPB:'IPPB'};
   const from=$('from').value, to=$('to').value;
-  const matched=(category==='Any'?(window.__allCategoryNilRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division));
+  const matched=(category==='Any'?(window.__allCategoryNilRows||[]):category==='AnyCategory'?(window.__continuousRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division));
   if(category==='Any'){
     detailRows=matched.map(r=>({'Office ID':r.office_id,'Office Name':r.office_name,'Division':r.division_name||'Unmapped','Sub Division':r.sub_division_name||'—','SO Name':r.so_name||'—','CBS':r.cbs_nil_offices?'YES':'','PLI':r.pli_nil_offices?'YES':'','Mail':r.mail_nil_offices?'YES':'','MO':r.mo_nil_offices?'YES':'','Stamp':r.stamp_nil_offices?'YES':'','IPPB':r.ippb_nil_offices?'YES':'','Remark':`Continuous for period (${from} to ${to})`}));
   } else {
