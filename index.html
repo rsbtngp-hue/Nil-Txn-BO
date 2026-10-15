@@ -270,12 +270,24 @@ const val = (r, key) => {
 // Database functions
 function db(){
   return new Promise((res,rej)=>{
-    let r = indexedDB.open('nilBoDashboard',2);
-    r.onupgradeneeded = () => {
-      if (!r.result.objectStoreNames.contains('data')) r.result.createObjectStore('data');
+    let r, settled=false;
+    const timer=setTimeout(()=>{
+      if(settled)return;
+      settled=true;
+      rej(new Error('Local database opening timed out. Close duplicate dashboard tabs and reload; Google checking will continue separately.'));
+    },5000);
+    const fail=err=>{if(settled)return;settled=true;clearTimeout(timer);rej(err||new Error('Local database could not be opened.'));};
+    try{r=indexedDB.open('nilBoDashboard',2);}catch(err){fail(err);return;}
+    r.onupgradeneeded=()=>{
+      try{if(!r.result.objectStoreNames.contains('data'))r.result.createObjectStore('data');}
+      catch(err){fail(err);}
     };
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+    r.onblocked=()=>{setLocalStatus('waiting for another tab…',false);};
+    r.onsuccess=()=>{
+      if(settled){try{r.result.close();}catch(e){}return;}
+      settled=true;clearTimeout(timer);res(r.result);
+    };
+    r.onerror=()=>fail(r.error);
   });
 }
 async function save(){
@@ -284,16 +296,24 @@ async function save(){
   return new Promise((resolve,reject) => { t.oncomplete = ()=>{setLocalStatus('saved locally',true);resolve();}; t.onerror=()=>{setLocalStatus('save failed',false);reject(t.error);}; });
 }
 async function load(){
-  try {
-    const d = await db();
-    const saved = await new Promise((resolve,reject) => {
-      const tx=d.transaction('data','readonly'), q=tx.objectStore('data').get('current');
-      q.onsuccess=()=>resolve(q.result||null); q.onerror=()=>reject(q.error);
+  try{
+    const d=await db();
+    const saved=await new Promise((resolve,reject)=>{
+      const tx=d.transaction('data','readonly'),q=tx.objectStore('data').get('current');
+      q.onsuccess=()=>resolve(q.result||null);q.onerror=()=>reject(q.error);
+      tx.onabort=()=>reject(tx.error||new Error('Local database read was interrupted.'));
     });
-    if(saved){ master=saved.master||[]; daily=saved.daily||[]; dirtyDailyMonths=saved.dirtyDailyMonths||[]; bookingRows=saved.bookingRows||[]; bookingUploadAt=saved.bookingUploadAt||''; bookingDirty=!!saved.bookingDirty||localStorage.getItem('nilBoBookingDirty')==='1'; updateMasterUploadUI(); render(); renderBooking();
+    if(saved){
+      master=saved.master||[];daily=saved.daily||[];dirtyDailyMonths=saved.dirtyDailyMonths||[];bookingRows=saved.bookingRows||[];bookingUploadAt=saved.bookingUploadAt||'';bookingDirty=!!saved.bookingDirty||localStorage.getItem('nilBoBookingDirty')==='1';
+      updateMasterUploadUI();render();renderBooking();
       status(`Local database loaded • Office Master: ${master.length.toLocaleString()} • Daily records: ${daily.length.toLocaleString()}`);
-    } else status('Ready. Upload Office Master CSV and Daily transaction CSV file(s).');
-  } catch(err){ status('Could not open local database: '+(err.message||err)); }
+    }else status('Local database is ready; no saved records found yet.');
+    return true;
+  }catch(err){
+    setLocalStatus('unavailable',false);
+    status('Could not load local database: '+(err.message||err)+' • Google Sheets check will continue.');
+    return false;
+  }
 }
 
 // Pull the Office Master from Apps Script on startup, then persist it locally.
@@ -305,15 +325,25 @@ function unwrapRows(payload){
   if(payload.result){const nested=unwrapRows(payload.result);if(nested)return nested;}
   return null;
 }
+async function fetchJsonWithTimeout(url,options={},timeoutMs=12000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const response=await fetch(url,{...options,signal:controller.signal});
+    if(!response.ok)throw new Error('Google Apps Script GET failed: HTTP '+response.status);
+    return await response.json();
+  }catch(err){
+    if(err&&err.name==='AbortError')throw new Error('Google Sheets request timed out after '+Math.round(timeoutMs/1000)+' seconds. Local data remains available; use Sync to retry.');
+    throw err;
+  }finally{clearTimeout(timer);}
+}
 async function fetchGoogleMaster(){
   if(!navigator.onLine)throw new Error('Browser is offline.');
   const actions=['getMaster'];let lastErr=null;
   for(const action of actions){
     try{
       const url=APPS_SCRIPT_URL+'?action='+encodeURIComponent(action)+'&type=master&ts='+Date.now();
-      const response=await fetch(url,{method:'GET',cache:'no-store',redirect:'follow'});
-      if(!response.ok)throw new Error('HTTP '+response.status);
-      const payload=await response.json();
+      const payload=await fetchJsonWithTimeout(url,{method:'GET',cache:'no-store',redirect:'follow'},12000);
       const rows=unwrapRows(payload);
       if(rows){
         const normalized=rows.map(canonMaster).filter(r=>r.office_id);
@@ -356,6 +386,7 @@ async function fetchGoogleDataset(type){
 async function downloadGoogleDailyAndBooking(){
   const results=[],errors=[];
   for(const type of ['daily','booking']){
+    setSyncMessage('Checking Google Sheets • '+(type==='daily'?'Daily Nil Transactions':'BO Booking Performance')+'…');
     try{results.push(await fetchGoogleDataset(type));}
     catch(e){errors.push((type==='daily'?'Daily Nil Transactions':'BO Booking Performance')+': '+(e.message||e));}
   }
@@ -364,17 +395,21 @@ async function downloadGoogleDailyAndBooking(){
   return {results,errors};
 }
 async function startupSync(){
-  updateNetworkStatus();restoreSyncTime();setSyncMessage('Opening local database…');
-  await load();setLocalStatus(master.length?'loaded ('+master.length.toLocaleString()+' offices)':'ready',true);
-  if(!navigator.onLine){setSyncMessage('Offline — using saved local data.','error');return;}
+  updateNetworkStatus();restoreSyncTime();
+  setLocalStatus('opening…',true);
+  setSyncMessage('Loading local data first; Google connection checks have a time limit…');
+  const localLoaded=await load();
+  if(localLoaded)setLocalStatus(master.length?'loaded ('+master.length.toLocaleString()+' offices)':'ready',true);
+  if(!navigator.onLine){setSyncMessage('Offline — using saved local data. Google Sheets will be checked when online.','error');return;}
   const messages=[];
+  setSyncMessage('Checking Google Sheets • Office Master…');
   try{
     const pulled=await fetchGoogleMaster();messages.push('Office Master downloaded '+pulled.count.toLocaleString()+' rows');
-  }catch(err){messages.push('Office Master download failed: '+(err.message||err));}
+  }catch(err){messages.push('Office Master unavailable: '+(err.message||err));}
   const data=await downloadGoogleDailyAndBooking();
   data.results.forEach(x=>messages.push(x.sheet+' downloaded '+x.count.toLocaleString()+' rows and saved locally'));
   data.errors.forEach(x=>messages.push(x));
-  setSyncMessage(messages.join(' • '),data.errors.length?'error':'ok');
+  setSyncMessage(messages.length?messages.join(' • '):'Startup check finished.',data.errors.length?'error':'ok');
   if(bookingDirty&&bookingRows.length){
     try{await syncBookingToGoogle();}catch(err){$('bookingStatus').textContent='Booking data remains queued locally; Google sync could not be verified: '+(err.message||err);}
   }
@@ -1112,10 +1147,8 @@ function pdfTable(id, name){
 
 async function googleGet(action,params={}){
   const q=new URLSearchParams({action,...params,ts:String(Date.now())});
-  const response=await fetch(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'});
-  if(!response.ok)throw new Error('Google Apps Script GET failed: HTTP '+response.status);
-  const payload=await response.json();
-  if(payload && payload.ok===false)throw new Error(payload.error||('Google Apps Script rejected '+action));
+  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},12000);
+  if(payload&&payload.ok===false)throw new Error(payload.error||('Google Apps Script rejected '+action));
   return payload;
 }
 function gasCall(action,type,rows=[],months=[]){
@@ -1202,7 +1235,11 @@ $('clearBtn').onclick = async () => {
 
 updateMasterUploadUI();
 setAdminMode(false);
-startupSync();
+startupSync().catch(err=>{
+  const msg='Startup check stopped safely: '+(err&&err.message?err.message:String(err));
+  try{setSyncMessage(msg,'error');setLocalStatus('available only if previously loaded',false);}catch(e){}
+  console.error(msg,err);
+});
 </script>
 <footer class="app-footer">@ 2026 Nagpur Postal Region • Maharashtra Circle • Department of Posts • Ministry of Communications, Government of India • Monitoring Dashboard</footer>
 </body>
