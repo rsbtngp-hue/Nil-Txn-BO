@@ -242,7 +242,9 @@ const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbxV6bArHWZor5PbIe
 
 const categories=[['cbs_nil_offices','CBS'],['pli_nil_offices','PLI'],['mail_nil_offices','Mail'],['mo_nil_offices','MO'],['stamp_nil_offices','Stamp'],['ippb_nil_offices','IPPB']];
 let master=[], daily=[], bookingRows=[], bookingUploadAt='', view=[], detailRows=[], detailTitle='Nil office details', dirtyDailyMonths=[];
-let adminLoggedIn=false, editingOfficeIndex=-1, bookingDirty=false;\nlet excludedOfficeIds=new Set();\ntry{excludedOfficeIds=new Set(JSON.parse(localStorage.getItem('nilBoExcludedOfficeIds')||'[]').map(x=>String(x)));}catch(e){excludedOfficeIds=new Set();}
+let adminLoggedIn=false, editingOfficeIndex=-1, bookingDirty=false;
+let excludedOfficeIds=new Set();
+try{excludedOfficeIds=new Set(JSON.parse(localStorage.getItem('nilBoExcludedOfficeIds')||'[]').map(x=>String(x)));}catch(e){excludedOfficeIds=new Set();}
 
 const $ = id => document.getElementById(id);
 const status = t => { const el=$('status'); if(el) el.textContent=t; setSyncMessage(t); };
