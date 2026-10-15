@@ -150,6 +150,16 @@ body[data-theme="violet"] .app-tab#tabNil{background:linear-gradient(125deg,#704
   </section>
 
   <section class="panel hide" id="masterAdminPanel">
+    <section class="panel" id="officeExclusionPanel" style="margin:0 0 16px;border:1px solid #f2c078;background:#fffbeb">
+      <div class="section-head"><h2>Exclude Offices from Dashboard Calculations</h2><span class="admin-badge">Administrator only</span></div>
+      <div class="toolbar" style="margin-bottom:10px">
+        <label class="field">Search office to exclude<input id="excludeOfficeSearch" type="search" placeholder="Search office ID, name, division..."></label>
+        <button id="clearOfficeExclusions" class="secondary" type="button">Clear All Exclusions</button>
+        <span id="excludedOfficeCount" class="note"></span>
+      </div>
+      <div id="officeExclusionList" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:7px;max-height:300px;overflow:auto;padding:8px;border:1px solid #f1d6a5;border-radius:8px;background:#fff"></div>
+      <div class="note">Tick an office to exclude it from Nil Transaction dashboard KPIs, division totals, and office-detail lists. Source data remains saved; this setting is stored in this browser and can be changed any time by an administrator.</div>
+    </section>
     <div class="section-head"><h2>Office Master Management</h2><button id="addOfficeBtn" type="button">＋ Add Office</button><button id="exportMasterBtn" class="secondary" type="button">Export Master Excel</button></div>
     <div class="toolbar" style="margin-bottom:12px"><label class="field">Search Office Master<input id="masterSearch" type="search" placeholder="Office ID, name, SOL ID, division..."></label><span id="masterCount" class="note"></span></div>
     <div class="tablebox master-admin-table"><table id="masterAdminTable"></table></div>
@@ -232,7 +242,7 @@ const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbxV6bArHWZor5PbIe
 
 const categories=[['cbs_nil_offices','CBS'],['pli_nil_offices','PLI'],['mail_nil_offices','Mail'],['mo_nil_offices','MO'],['stamp_nil_offices','Stamp'],['ippb_nil_offices','IPPB']];
 let master=[], daily=[], bookingRows=[], bookingUploadAt='', view=[], detailRows=[], detailTitle='Nil office details', dirtyDailyMonths=[];
-let adminLoggedIn=false, editingOfficeIndex=-1, bookingDirty=false;
+let adminLoggedIn=false, editingOfficeIndex=-1, bookingDirty=false;\nlet excludedOfficeIds=new Set();\ntry{excludedOfficeIds=new Set(JSON.parse(localStorage.getItem('nilBoExcludedOfficeIds')||'[]').map(x=>String(x)));}catch(e){excludedOfficeIds=new Set();}
 
 const $ = id => document.getElementById(id);
 const status = t => { const el=$('status'); if(el) el.textContent=t; setSyncMessage(t); };
@@ -441,6 +451,35 @@ function updateMasterUploadUI(){
   $('masterUploadWrap').classList.toggle('hide', hasMaster);
   $('replaceMasterBtn').classList.toggle('hide', !hasMaster);
 }
+function saveOfficeExclusions(){
+  try{localStorage.setItem('nilBoExcludedOfficeIds',JSON.stringify([...excludedOfficeIds]));}catch(e){}
+  renderOfficeExclusionList();
+  render();
+}
+function renderOfficeExclusionList(){
+  const host=$('officeExclusionList');if(!host)return;
+  const q=String($('excludeOfficeSearch')?.value||'').trim().toLowerCase();
+  const offices=master.filter(o=>!q||[o.office_id,o.office_name,o.division_name,o.sub_division_name,o.so_name].some(v=>String(v||'').toLowerCase().includes(q))).sort((a,b)=>String(a.office_name||'').localeCompare(String(b.office_name||'')));
+  const selected=[...excludedOfficeIds];
+  $('excludedOfficeCount').textContent=selected.length.toLocaleString()+' office(s) excluded';
+  if(!offices.length){host.innerHTML='<div class="note">No matching offices.</div>';return;}
+  host.innerHTML=offices.map(o=>{
+    const id=String(o.office_id||'');const checked=excludedOfficeIds.has(id);
+    return '<label style="display:flex;align-items:flex-start;gap:8px;padding:8px;border:1px solid '+(checked?'#e7a23b':'#e2e8f0')+';border-radius:7px;background:'+(checked?'#fff4d6':'#fff')+';font-size:12px;cursor:pointer"><input type="checkbox" data-exclude-office="'+esc(id)+'" '+(checked?'checked':'')+' style="width:16px;height:16px;flex:0 0 auto;margin-top:1px"><span><b>'+esc(o.office_name||'Unnamed office')+'</b><br><span style="color:#627d98">'+esc(id)+' · '+esc(o.division_name||'Unmapped division')+' · '+esc(o.office_type_code||'')+'</span></span></label>';
+  }).join('');
+  host.querySelectorAll('[data-exclude-office]').forEach(input=>input.addEventListener('change',()=>{
+    const id=String(input.dataset.excludeOffice||'');
+    if(input.checked)excludedOfficeIds.add(id);else excludedOfficeIds.delete(id);
+    saveOfficeExclusions();
+  }));
+}
+$('excludeOfficeSearch')?.addEventListener('input',renderOfficeExclusionList);
+$('clearOfficeExclusions')?.addEventListener('click',()=>{
+  if(!adminLoggedIn)return alert('Admin login required.');
+  if(!excludedOfficeIds.size)return;
+  if(!confirm('Remove all office exclusions and include every office in dashboard calculations?'))return;
+  excludedOfficeIds.clear();saveOfficeExclusions();
+});
 function setAdminMode(unlocked){
   adminLoggedIn=!!unlocked;
   $('dataManagementPanel').classList.toggle('hide',!adminLoggedIn);
@@ -450,7 +489,7 @@ function setAdminMode(unlocked){
   $('adminLogoutBtn').classList.toggle('hide',!adminLoggedIn);
   $('openAdminLogin').textContent=adminLoggedIn?'✓ Administrator':'🔐 Admin Login';
   $('adminState').textContent=adminLoggedIn?'Administrator access enabled. CSV uploads, Office Master and booking data tools are unlocked.':'Administrator tools are locked.';
-  if(adminLoggedIn){updateMasterUploadUI();renderMasterAdmin();$('adminLoginModal').style.display='none';}
+  if(adminLoggedIn){updateMasterUploadUI();renderMasterAdmin();renderOfficeExclusionList();$('adminLoginModal').style.display='none';}
 }
 $('openAdminLogin').onclick=()=>{ if(adminLoggedIn){ if(confirm('Log out of Administrator mode?'))setAdminMode(false); } else {$('loginError').textContent='';$('adminLoginModal').style.display='flex';setTimeout(()=>$('adminPassword').focus(),50);} };
 $('closeAdminLogin').onclick=()=>$('adminLoginModal').style.display='none';
@@ -834,7 +873,7 @@ function apply(){
   let map = new Map(master.map(x => [String(x.office_id), x]));
   let from = $('from').value, to =$('to').value;
   
-  view = daily.map(x => ({...x, ...(map.get(String(x.office_id)) || {})})).filter(x => 
+  view = daily.map(x => ({...x, ...(map.get(String(x.office_id)) || {})})).filter(x => !excludedOfficeIds.has(String(x.office_id)) && 
     (!from || x.transac_date >= from) && 
     (!to || x.transac_date <= to) && 
     ['division','subdivision','so','office'].every(id => !$(id).value || x[{division:'division_name', subdivision:'sub_division_name', so:'so_name', office:'office_name'}[id]] ===$(id).value)
@@ -872,7 +911,7 @@ function buildReport(){
   });
   
   // Loosened status check in case CSV has varied capitalization
-  let bpos = master.filter(x => String(x.office_type_code).trim().toUpperCase() === 'BPO' && String(x.office_status).toLowerCase().includes('active'));
+  let bpos = master.filter(x => String(x.office_type_code).trim().toUpperCase() === 'BPO' && String(x.office_status).toLowerCase().includes('active') && !excludedOfficeIds.has(String(x.office_id)));
   let hasFilters = ['division','subdivision','so','office'].some(id => $(id).value);
   if(hasFilters) {
     bpos = bpos.filter(x => ['division','subdivision','so','office'].every(id => !$(id).value || x[{division:'division_name', subdivision:'sub_division_name', so:'so_name', office:'office_name'}[id]] ===$(id).value));
@@ -973,7 +1012,7 @@ function renderDivisionTable(groups, totals, continuousRows){
 function openBpoList(division){
   const selectedDivision=division;
   const hasFilters=['division','subdivision','so','office'].some(id=>$(id).value);
-  let rows=master.filter(o=>String(o.office_type_code||'').trim().toUpperCase()==='BPO' && String(o.office_status||'').toLowerCase().includes('active'));
+  let rows=master.filter(o=>String(o.office_type_code||'').trim().toUpperCase()==='BPO' && String(o.office_status||'').toLowerCase().includes('active') && !excludedOfficeIds.has(String(o.office_id)));
   rows=rows.filter(o=>(selectedDivision==='TOTAL'||(o.division_name||'Unmapped division')===selectedDivision) && ['division','subdivision','so','office'].every(id=>!$(id).value||o[{division:'division_name',subdivision:'sub_division_name',so:'so_name',office:'office_name'}[id]]===$(id).value));
   detailRows=rows.map(o=>({'Office ID':o.office_id,'Office Name':o.office_name,'Division':o.division_name||'Unmapped','Sub Division':o.sub_division_name||'—','SO Name':o.so_name||'—','Office Type':o.office_type_code||'BPO'}));
   detailTitle=`${selectedDivision==='TOTAL'?'All Divisions':selectedDivision} — BPO Office Master List`;
