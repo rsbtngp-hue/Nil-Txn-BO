@@ -128,6 +128,7 @@ body[data-theme="violet"] .app-tab#tabNil{background:linear-gradient(125deg,#704
     <span id="googlePill" class="sync-pill"><span class="sync-dot"></span><span id="googleLabel">Google Sheets: waiting</span></span>
     <span id="syncMessage" class="sync-message">Opening local database and checking Google Sheets…</span>
     <span id="syncTime" class="sync-time">Last sync: not yet</span>
+    <button id="manualGoogleSyncBtn" type="button" class="secondary" style="height:30px;padding:0 10px;font-size:12px;white-space:nowrap">↻ Sync Google Sheets</button>
   </div>
 </header>
 
@@ -345,7 +346,7 @@ async function fetchGoogleMaster(){
   for(const action of actions){
     try{
       const url=APPS_SCRIPT_URL+'?action='+encodeURIComponent(action)+'&type=master&ts='+Date.now();
-      const payload=await fetchJsonWithTimeout(url,{method:'GET',cache:'no-store',redirect:'follow'},12000);
+      const payload=await fetchJsonWithTimeout(url,{method:'GET',cache:'no-store',redirect:'follow'},45000);
       const rows=unwrapRows(payload);
       if(rows){
         const normalized=rows.map(canonMaster).filter(r=>r.office_id);
@@ -395,6 +396,31 @@ async function downloadGoogleDailyAndBooking(){
   render();renderBooking();
   setLocalStatus('saved • '+daily.length.toLocaleString()+' daily rows • '+bookingRows.length.toLocaleString()+' booking offices',true);
   return {results,errors};
+}
+async function manualGoogleSync(){
+  const btn=$('manualGoogleSyncBtn');
+  if(!navigator.onLine){setSyncMessage('Offline — connect to the internet before syncing Google Sheets.','error');return;}
+  if(btn)btn.disabled=true;
+  if($('syncBtn'))$('syncBtn').disabled=true;
+  try{
+    setSyncMessage('Manual Google Sheets sync started…');
+    const messages=[],errors=[];
+    try{const pulled=await fetchGoogleMaster();messages.push('Office Master '+pulled.count.toLocaleString()+' rows');}
+    catch(e){errors.push('Office Master: '+(e.message||e));}
+    const data=await downloadGoogleDailyAndBooking();
+    data.results.forEach(x=>messages.push(x.sheet+' '+x.count.toLocaleString()+' rows downloaded'));
+    errors.push(...data.errors);
+    const summary=messages.join(' • ')+(errors.length?' • Issues: '+errors.join(' | '):' • All available datasets downloaded and saved locally.');
+    setSyncMessage(summary,errors.length?'error':'ok');
+    status(summary);
+    if(!errors.length)markSyncTime();
+  }catch(e){
+    const msg='Manual Google Sheets sync failed: '+(e.message||e)+'. Existing local data has been retained.';
+    setSyncMessage(msg,'error');status(msg);
+  }finally{
+    if(btn)btn.disabled=false;
+    if($('syncBtn'))$('syncBtn').disabled=false;
+  }
 }
 async function startupSync(){
   updateNetworkStatus();restoreSyncTime();
@@ -1149,7 +1175,7 @@ function pdfTable(id, name){
 
 async function googleGet(action,params={}){
   const q=new URLSearchParams({action,...params,ts:String(Date.now())});
-  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},12000);
+  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},60000);
   if(payload&&payload.ok===false)throw new Error(payload.error||('Google Apps Script rejected '+action));
   return payload;
 }
@@ -1217,6 +1243,7 @@ async function sync(){
   }finally{$('syncBtn').disabled=false;}
 }
 $('syncBtn').onclick = sync;
+$('manualGoogleSyncBtn').onclick = manualGoogleSync;
 $('division').onchange=()=>{ $('subdivision').value='';$('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('subdivision').onchange=()=>{ $('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('so').onchange=()=>{ $('office').value='';refreshHierarchy();apply(); };
