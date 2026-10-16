@@ -623,7 +623,7 @@ const bookingColumns=[
  ['walk_in_commercial','Walk-in Commercial'],['walk_in_e_commerce','Walk-in E-commerce'],['bulk_non_commercial','Bulk Non-Commercial'],['bulk_commercial','Bulk Commercial'],
  ['bulk_e_commerce','Bulk E-commerce'],['bo_rebooking','BO Rebooking'],['free_active_service','Free Active Service'],['inter_fpo','Inter FPO']
 ];
-const bookingMetrics=bookingColumns.slice(11).map(c=>c[0]);
+const bookingMetrics=bookingColumns.slice(12).map(c=>c[0]);
 function numericCell(v){const n=Number(String(v??'0').replace(/,/g,'').trim());return Number.isFinite(n)?n:0;}
 function bookingKey(key){return norm(key).replace(/[^a-z0-9]/g,'');}
 function bookingVal(row,key){
@@ -750,7 +750,7 @@ function openBookingTotalDetails(band,offices){
 }
 function openBookingDetails(title,offices){
   detailTitle=title;detailRows=offices.map(o=>({
-    'Office ID':o.office_id,'Office Name':o.office_name,'Division':o.division_name||'Unmapped','Sub Division':o.sub_division_name||'—','SO Name':o.so_name||'—',
+    'Office ID':o.office_id,'Office Name':o.office_name,'Booking Date':o.booking_date||'—','Division':o.division_name||'Unmapped','Sub Division':o.sub_division_name||'—','SO Name':o.so_name||'—',
     'Walk-in Customer':numericCell(o._metrics?.walk_in_customer),'On Postal Service':numericCell(o._metrics?.on_postal_service)
   }));
   $('modalTitle').textContent=title;$('modalNote').textContent=`${detailRows.length.toLocaleString()} BPO office(s). Booking category bands are calculated from Walk-in Customer only.`;
