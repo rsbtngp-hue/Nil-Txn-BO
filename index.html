@@ -617,7 +617,7 @@ function switchAppSection(which){
 const bookingColumns=[
  ['circle_id','Circle ID'],['circle_name','Circle Name'],['region_id','Region ID'],['region_name','Region Name'],
  ['division_id','Division ID'],['division_name','Division Name'],['sub_division_id','Sub Division ID'],['sub_division_name','Sub Division Name'],
- ['office_id','Office ID'],['office_name','Office Name'],['product_name','Product Name'],['walk_in_customer','Walk-in Customer'],['registered_bulk','Registered Bulk'],
+ ['office_id','Office ID'],['office_name','Office Name'],['booking_date','Booking Date'],['product_name','Product Name'],['walk_in_customer','Walk-in Customer'],['registered_bulk','Registered Bulk'],
  ['on_postal_service','On Postal Service'],['govt_service','Govt Service'],['walk_in_non_commercial','Walk-in Non-Commercial'],['non_commercial','Non-Commercial'],
  ['commercial','Commercial'],['e_commerce','E-commerce'],['pidpi','PIDPI'],['student_mail','Student Mail'],['others','Others'],
  ['walk_in_commercial','Walk-in Commercial'],['walk_in_e_commerce','Walk-in E-commerce'],['bulk_non_commercial','Bulk Non-Commercial'],['bulk_commercial','Bulk Commercial'],
@@ -632,6 +632,7 @@ function bookingVal(row,key){
   return found===undefined?'':row[found];
 }
 function normalizeBookingOfficeId(value){let id=String(value??'').trim();if(/^\d+\.0+$/.test(id))id=id.replace(/\.0+$/,'');return id;}
+function normalizeBookingDate(value){const v=String(value??'').trim();if(!v)return '';let m=v.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})$/);if(m){let y=m[3];if(y.length===2)y=String(Number(y)>=70?1900+Number(y):2000+Number(y));return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');}m=v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toISOString().slice(0,10);}
 function isMasterBPO(office){
   const type=String(office?.office_type_code??'').trim().toUpperCase();
   return ['BPO','BO','BRANCH OFFICE','BRANCH POST OFFICE','BRANCH POST OFFICE (BO)'].includes(type) || type.includes('BPO');
@@ -648,6 +649,7 @@ function parseBookingCsv(rows){
     if(!isMasterBPO(office)){nonBpo.push(officeId);continue;}
     const out={};
     bookingColumns.forEach(([key])=>out[key]=key==='office_id'?officeId:(key==='office_name'?(officeName||office.office_name||''):String(bookingVal(raw,key)??'').trim()));
+    out.booking_date=normalizeBookingDate(bookingVal(raw,'booking_date'));
     // Office Master is authoritative for hierarchy and BPO identification.
     out.office_type_code=office.office_type_code;
     out.division_name=String(office.division_name||out.division_name||'').trim();
