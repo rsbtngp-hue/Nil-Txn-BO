@@ -760,7 +760,7 @@ function openBookingDetails(title,offices){
 function renderBooking(){
   if(!$('bookingTable'))return;
   refreshBookingFilters();
-  const offices=bookingFilteredOffices(),sum=k=>offices.reduce((n,r)=>n+numericCell(r._metrics?.[k]),0),summary=bookingDivisionSummary(offices);
+  const offices=bookingFilteredOffices(),sum=k=>offices.reduce((n,r)=>n+numericCell(r._metrics?.[k]),0),subdivisionMode=Boolean($('bookingDivision').value),summary=subdivisionMode?bookingSubDivisionSummary(offices):bookingDivisionSummary(offices);
   const cards=[
     ['No of BPOs',offices.length,()=>openBookingDetails('All BPO Offices',offices)],
     ['BPOs with Nil Booking',offices.filter(o=>numericCell(o._metrics?.walk_in_customer)===0),()=>openBookingDetails('BPOs with Nil Walk-in Customer Booking',offices.filter(o=>numericCell(o._metrics?.walk_in_customer)===0))],
@@ -772,14 +772,16 @@ function renderBooking(){
   [...$('bookingCards').querySelectorAll('[data-booking-card]')].forEach(btn=>btn.onclick=()=>cards[Number(btn.dataset.bookingCard)][2]());
   const div=$('bookingDivision').value,sd=$('bookingSubdivision').value,so=$('bookingSo').value,of=$('bookingOffice').value;
   $('bookingPeriod').textContent=bookingRows.length?`Reporting snapshot uploaded ${bookingUploadAt||'at an unknown time'} • ${offices.length.toLocaleString()} BPOs in current filter • ${div||'All Divisions'}${sd?' / '+sd:''}${so?' / '+so:''}${of?' / '+of:''}. Total BPO counts come from Office Master; offices missing from the CSV count as nil Walk-in Customer booking.`:'No booking CSV uploaded yet. BPO totals are from Office Master; upload the CSV to calculate booking performance.';
-  const heads=['Division Name','No of BPOs','Total SDH Target per Month','Total Paid Article Booking','Total Shortfall','Percentage %',"Count BO's Booked with Nil","Count BO's Booked 1 to 5 Article","Count BO's Booked 6 to 10 Article","Count BO's Booked above 10 Article"];
+  const heads=[subdivisionMode?'Sub Division Name':'Division Name','No of BPOs','Total SDH Target per Month','Total Paid Article Booking','Total Shortfall','Percentage %',"Count BO's Booked with Nil","Count BO's Booked 1 to 5 Article","Count BO's Booked 6 to 10 Article","Count BO's Booked above 10 Article'];
   let html='<thead><tr>'+heads.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>';
   if(!summary.length)html+='<tr><td class="empty" colspan="10">No BPO offices in Office Master match the selected filters.</td></tr>';
   summary.forEach(g=>{
-    const cells=[g.division_name,g.noBpo,g.target,g.paid,g.shortfall,g.percentage.toFixed(2)+'%',g.buckets.nil,g.buckets.onefive,g.buckets.sixten,g.buckets.above];
+    const groupDivision=subdivisionMode?g.parent_division:g.division_name,groupSubDivision=subdivisionMode?g.sub_division_name:'';
+    const displayName=subdivisionMode?g.sub_division_name:g.division_name;
+    const cells=[displayName,g.noBpo,g.target,g.paid,g.shortfall,g.percentage.toFixed(2)+'%',g.buckets.nil,g.buckets.onefive,g.buckets.sixten,g.buckets.above];
     html+='<tr>'+cells.map((v,i)=>{
-      if(i>=6){const type=['nil','onefive','sixten','above'][i-6];const subset=g.offices.filter(o=>{const n=numericCell(o._metrics?.walk_in_customer);return type==='nil'?n===0:type==='onefive'?n>=1&&n<=5:type==='sixten'?n>=6&&n<=10:n>10;});return `<td><button type="button" class="table-link" data-div="${esc(g.division_name)}" data-band="${type}">${Number(v).toLocaleString('en-IN')}</button></td>`;}
-      if(i===0)return `<td><button type="button" class="table-link" data-div="${esc(g.division_name)}" data-band="all">${esc(v)}</button></td>`;
+      if(i>=6){const type=['nil','onefive','sixten','above'][i-6];return `<td><button type="button" class="table-link" data-div="${esc(groupDivision)}" data-subdiv="${esc(groupSubDivision)}" data-band="${type}">${Number(v).toLocaleString('en-IN')}</button></td>`;}
+      if(i===0)return `<td><button type="button" class="table-link" data-div="${esc(groupDivision)}" data-subdiv="${esc(groupSubDivision)}" data-band="all">${esc(v)}${subdivisionMode?`<small style="display:block;font-weight:400;opacity:.75">${esc(groupDivision)}</small>`:''}</button></td>`;
       return '<td>'+esc(typeof v==='number'?v.toLocaleString('en-IN'):v)+'</td>';
     }).join('')+'</tr>';
   });
@@ -790,7 +792,7 @@ function renderBooking(){
   $('bookingTable').innerHTML=html+'</tbody>';
   renderSubDivisionBookingTable(offices);
   $('bookingTable').querySelectorAll('[data-total-booking]').forEach(btn=>btn.onclick=()=>openBookingTotalDetails(btn.dataset.totalBooking,offices));
-  $('bookingTable').querySelectorAll('[data-band]').forEach(btn=>btn.onclick=()=>{const divName=btn.dataset.div,band=btn.dataset.band;const pool=offices.filter(o=>o.division_name===divName);const subset=band==='all'?pool:pool.filter(o=>{const n=numericCell(o._metrics?.walk_in_customer);return band==='nil'?n===0:band==='onefive'?n>=1&&n<=5:band==='sixten'?n>=6&&n<=10:n>10;});const label={all:'All BPOs',nil:'Nil Walk-in Booking',onefive:'1 to 5 Walk-in Articles',sixten:'6 to 10 Walk-in Articles',above:'Above 10 Walk-in Articles'}[band];openBookingDetails(`${divName} — ${label}`,subset);});
+  $('bookingTable').querySelectorAll('[data-band]').forEach(btn=>btn.onclick=()=>{const divName=btn.dataset.div,subName=btn.dataset.subdiv,band=btn.dataset.band;const pool=offices.filter(o=>o.division_name===divName&&(!subName||o.sub_division_name===subName));const subset=band==='all'?pool:pool.filter(o=>{const n=numericCell(o._metrics?.walk_in_customer);return band==='nil'?n===0:band==='onefive'?n>=1&&n<=5:band==='sixten'?n>=6&&n<=10:n>10;});const label={all:'All BPOs',nil:'Nil Walk-in Booking',onefive:'1 to 5 Walk-in Articles',sixten:'6 to 10 Walk-in Articles',above:'Above 10 Walk-in Articles'}[band];openBookingDetails(`${subName?subName+' ('+divName+')':divName} — ${label}`,subset);});
   $('bookingFootnote').textContent=`Division-wise consolidated report. Monthly SDH target = No. of BPOs × 10. Total Paid Article Booking, Shortfall and Percentage use Walk-in Customer only; On Postal Service is excluded from both consolidated tables. Nil/1–5/6–10/above-10 office bands use Walk-in Customer only. BPO counts come from Office Master. ${bookingDirty?'Google sync pending.':'Google booking sync status: '+(localStorage.getItem('nilBoBookingSynced')==='1'?'last upload verified':'not yet verified')+'.'}`;
 }
 async function syncBookingToGoogle(){
