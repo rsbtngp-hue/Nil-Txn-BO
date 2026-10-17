@@ -1017,27 +1017,36 @@ function buildReport(){
   
   $('cards').innerHTML = cards.map((x,i) => { const catMap={1:'CBS',2:'PLI',3:'Mail',4:'MO',5:'Stamp',6:'IPPB',7:'Any'}; const cat=catMap[i]; const action=i===0 ? "openBpoList('TOTAL')" : `openNilDetails('TOTAL','${cat||'Any'}')`; return `<button type="button" class="card ${x[2]}" style="text-align:left;border:0;width:100%;cursor:pointer" onclick="${action}"><div>${x[0]}</div><div class="num">${x[1].toLocaleString()}</div></button>`; }).join('');
   
-  let groups = {};
-  const bposByDivision = {};
-  bpos.forEach(o => { const n=o.division_name || 'Unmapped division'; bposByDivision[n]=(bposByDivision[n]||0)+1; });
-  Object.keys(bposByDivision).forEach(n => { groups[n] = { total: new Set(), totalBOs: bposByDivision[n]||0, CBS: 0, PLI: 0, Mail: 0, MO: 0, Stamp: 0, IPPB: 0, Any: 0 }; });
+  // Keep the normal division summary, but expand the selected division into
+  // Sub Division rows when a Division filter is active (same behaviour as Treasury Shift).
+  const expandSubDivisions = Boolean($('division').value);
+  const groupKey = o => expandSubDivisions
+    ? (o.division_name || 'Unmapped division') + '||' + (o.sub_division_name || 'Unmapped sub division')
+    : (o.division_name || 'Unmapped division');
+  const groupMeta = o => expandSubDivisions
+    ? {name:o.sub_division_name || 'Unmapped sub division', division:o.division_name || 'Unmapped division', subdivision:o.sub_division_name || 'Unmapped sub division'}
+    : {name:o.division_name || 'Unmapped division', division:o.division_name || 'Unmapped division', subdivision:''};
+  const groups = {};
+  bpos.forEach(o => {
+    const key=groupKey(o), meta=groupMeta(o);
+    if(!groups[key]) groups[key]={...meta,totalBOs:0,CBS:0,PLI:0,Mail:0,MO:0,Stamp:0,IPPB:0,Any:0};
+    groups[key].totalBOs++;
+  });
   result.forEach(r => {
-    let n = r.division_name || 'Unmapped division';
-    if(!groups[n]) groups[n] = { total: new Set(), totalBOs: bposByDivision[n]||0, CBS: 0, PLI: 0, Mail: 0, MO: 0, Stamp: 0, IPPB: 0, Any: 0 };
-    let g = groups[n];
-    g.total.add(r.office_id);
+    const key=groupKey(r), meta=groupMeta(r);
+    if(!groups[key]) groups[key]={...meta,totalBOs:0,CBS:0,PLI:0,Mail:0,MO:0,Stamp:0,IPPB:0,Any:0};
+    const g=groups[key];
     g.CBS += r.cbs_nil_offices ? 1 : 0;
     g.PLI += r.pli_nil_offices ? 1 : 0;
     g.Mail += r.mail_nil_offices ? 1 : 0;
     g.MO += r.mo_nil_offices ? 1 : 0;
     g.Stamp += r.stamp_nil_offices ? 1 : 0;
     g.IPPB += r.ippb_nil_offices ? 1 : 0;
-    if (categories.every(([k]) => r[k] === true)) g.Any++;
+    if(categories.every(([k]) => r[k] === true)) g.Any++;
   });
-  
-  const divRows = Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).map(([n,g])=>({name:n, ...g}));
-  const totals = divRows.reduce((t,g)=>{ t.totalBOs += g.totalBOs; t.total += g.Any; t.CBS += g.CBS; t.PLI += g.PLI; t.Mail += g.Mail; t.MO += g.MO; t.Stamp += g.Stamp; t.IPPB += g.IPPB; return t; },{totalBOs:0,total:0,CBS:0,PLI:0,Mail:0,MO:0,Stamp:0,IPPB:0});
-  renderDivisionTable(divRows, totals, result);
+  const divRows = Object.values(groups).sort((a,b)=>(a.division||'').localeCompare(b.division||'') || (a.name||'').localeCompare(b.name||''));
+  const totals = divRows.reduce((t,g)=>{t.totalBOs+=g.totalBOs;t.total+=g.Any;t.CBS+=g.CBS;t.PLI+=g.PLI;t.Mail+=g.Mail;t.MO+=g.MO;t.Stamp+=g.Stamp;t.IPPB+=g.IPPB;return t;},{totalBOs:0,total:0,CBS:0,PLI:0,Mail:0,MO:0,Stamp:0,IPPB:0});
+  renderDivisionTable(divRows, totals, result, expandSubDivisions);
   
 }
 
@@ -1054,14 +1063,17 @@ function table(id, heads, rows){
   }));
 }
 
-function renderDivisionTable(groups, totals, continuousRows){
-  const heads=['Division','Total No. of BOs','No. of BOs continuously nil','CBS','PLI','Mail','MO','Stamp','IPPB'];
+function renderDivisionTable(groups, totals, continuousRows, subdivisionMode=false){
+  const firstHead=subdivisionMode?'Sub Division':'Division';
+  const heads=[firstHead,'Total No. of BOs','No. of BOs continuously nil','CBS','PLI','Mail','MO','Stamp','IPPB'];
   let html='<thead><tr>'+heads.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr></thead><tbody>';
   groups.forEach(g=>{
-    html+='<tr><td>'+esc(g.name)+'</td>';
-    html+=`<td><button class="click-count" onclick="openBpoList(decodeURIComponent('${encodeURIComponent(g.name)}') )">${Number(g.totalBOs||0).toLocaleString()}</button></td>`;
-    html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${encodeURIComponent(g.name)}'),'AnyCategory')">${g.Any.toLocaleString()}</button></td>`;
-    ['CBS','PLI','Mail','MO','Stamp','IPPB'].forEach(cat=>{ html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${encodeURIComponent(g.name)}'),'${cat}')">${g[cat].toLocaleString()}</button></td>`; });
+    const divisionArg=encodeURIComponent(g.division||g.name), subArg=encodeURIComponent(g.subdivision||'');
+    const rowLabel=subdivisionMode ? '<div style="font-weight:800">'+esc(g.name)+'</div><div style="font-size:10px;color:#627d98;margin-top:3px">'+esc(g.division||'')+'</div>' : esc(g.name);
+    html+='<tr><td>'+rowLabel+'</td>';
+    html+=`<td><button class="click-count" onclick="openBpoList(decodeURIComponent('${divisionArg}'),decodeURIComponent('${subArg}'))">${Number(g.totalBOs||0).toLocaleString()}</button></td>`;
+    html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${divisionArg}'),'AnyCategory',decodeURIComponent('${subArg}'))">${g.Any.toLocaleString()}</button></td>`;
+    ['CBS','PLI','Mail','MO','Stamp','IPPB'].forEach(cat=>{ html+=`<td><button class="click-count" onclick="openNilDetails(decodeURIComponent('${divisionArg}'),'${cat}',decodeURIComponent('${subArg}'))">${g[cat].toLocaleString()}</button></td>`; });
     html+='</tr>';
   });
   html+='<tr class="total-row"><td>TOTAL</td>';
@@ -1074,11 +1086,11 @@ function renderDivisionTable(groups, totals, continuousRows){
   window.__continuousRows=continuousRows;
   window.__allCategoryNilRows=continuousRows.filter(r=>categories.every(([k])=>r[k]===true));
 }
-function openBpoList(division){
+function openBpoList(division, subDivision=''){
   const selectedDivision=division;
   const hasFilters=['division','subdivision','so','office'].some(id=>$(id).value);
   let rows=master.filter(o=>String(o.office_type_code||'').trim().toUpperCase()==='BPO' && String(o.office_status||'').toLowerCase().includes('active') && !excludedOfficeIds.has(String(o.office_id)));
-  rows=rows.filter(o=>(selectedDivision==='TOTAL'||(o.division_name||'Unmapped division')===selectedDivision) && ['division','subdivision','so','office'].every(id=>!$(id).value||o[{division:'division_name',subdivision:'sub_division_name',so:'so_name',office:'office_name'}[id]]===$(id).value));
+  rows=rows.filter(o=>(selectedDivision==='TOTAL'||(o.division_name||'Unmapped division')===selectedDivision) && (!subDivision||(o.sub_division_name||'Unmapped sub division')===subDivision) && ['division','subdivision','so','office'].every(id=>!$(id).value||o[{division:'division_name',subdivision:'sub_division_name',so:'so_name',office:'office_name'}[id]]===$(id).value));
   detailRows=rows.map(o=>({'Office ID':o.office_id,'Office Name':o.office_name,'Division':o.division_name||'Unmapped','Sub Division':o.sub_division_name||'—','SO Name':o.so_name||'—','Office Type':o.office_type_code||'BPO'}));
   detailTitle=`${selectedDivision==='TOTAL'?'All Divisions':selectedDivision} — BPO Office Master List`;
   $('modalTitle').textContent=detailTitle;
@@ -1087,18 +1099,18 @@ function openBpoList(division){
   table('modalTable',heads,detailRows.map(r=>heads.map(h=>r[h]??'')));
   $('detailModal').style.display='flex';
 }
-function openNilDetails(division, category){
+function openNilDetails(division, category, subDivision=''){
   const keyMap={CBS:'cbs_nil_offices',PLI:'pli_nil_offices',Mail:'mail_nil_offices',MO:'mo_nil_offices',Stamp:'stamp_nil_offices',IPPB:'ippb_nil_offices'};
   const labelMap={CBS:'CBS',PLI:'PLI',Mail:'Mail',MO:'MO',Stamp:'Stamp',IPPB:'IPPB'};
   const from=$('from').value, to=$('to').value;
-  const matched=(category==='Any' || category==='AnyCategory'?(window.__allCategoryNilRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division));
+  const matched=(category==='Any' || category==='AnyCategory'?(window.__allCategoryNilRows||[]):(window.__continuousRows||[]).filter(r=>r[keyMap[category]]===true)).filter(r=>(division==='TOTAL' || (r.division_name||'Unmapped division')===division) && (!subDivision||(r.sub_division_name||'Unmapped sub division')===subDivision));
   if(category==='Any'){
     detailRows=matched.map(r=>({'Office ID':r.office_id,'Office Name':r.office_name,'Division':r.division_name||'Unmapped','Sub Division':r.sub_division_name||'—','SO Name':r.so_name||'—','CBS':r.cbs_nil_offices?'YES':'','PLI':r.pli_nil_offices?'YES':'','Mail':r.mail_nil_offices?'YES':'','MO':r.mo_nil_offices?'YES':'','Stamp':r.stamp_nil_offices?'YES':'','IPPB':r.ippb_nil_offices?'YES':'','Remark':`Continuous for period (${from} to ${to})`}));
   } else {
     const label=labelMap[category];
     detailRows=matched.map(r=>({'Office ID':r.office_id,'Office Name':r.office_name,'Division':r.division_name||'Unmapped','Sub Division':r.sub_division_name||'—','SO Name':r.so_name||'—',[label+' Nil']: 'YES','Remark':`Continuous for period (${from} to ${to})`}));
   }
-  detailTitle=`${division==='TOTAL'?'All Divisions':division} — ${category==='Any'?'All continuous nil offices':category+' continuous nil offices'}`;
+  detailTitle=`${division==='TOTAL'?'All Divisions':division}${subDivision?' — '+subDivision:''} — ${category==='Any'?'All continuous nil offices':category+' continuous nil offices'}`;
   $('modalTitle').textContent=detailTitle;
   $('modalNote').textContent=`${detailRows.length.toLocaleString()} office(s) • selected date range ${from} to ${to}. ${category==='Any'?'All continuous-nil categories are shown.':`Only ${category} continuous-nil offices are shown.`} PDF preview opens in a new Chrome tab/window.`;
   const heads=Object.keys(detailRows[0]||(category==='Any'?{'Office ID':'','Office Name':'','Division':'','Sub Division':'','SO Name':'','CBS':'','PLI':'','Mail':'','MO':'','Stamp':'','IPPB':'','Remark':''}:{'Office ID':'','Office Name':'','Division':'','Sub Division':'','SO Name':'',[labelMap[category]+' Nil']:'','Remark':''}));
