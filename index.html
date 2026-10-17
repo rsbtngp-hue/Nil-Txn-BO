@@ -123,7 +123,7 @@ body[data-theme="violet"] .app-tab#tabNil{background:linear-gradient(125deg,#704
     <button id="themeToggle" class="hero-admin" type="button" title="Change dashboard theme">🎨 Change Theme</button><button id="openAdminLogin" class="hero-admin" type="button">🔐 Admin Login</button>
   </div>
   <div class="syncbar" aria-live="polite">
-    <span id="networkPill" class="sync-pill offline"><span class="sync-dot"></span><span id="networkLabel">Checking connection…</span></span>
+    <span id="networkPill" class="sync-pill offline"><span class="sync-dot"></span><span id="networkLabel">Online</span></span>
     <span id="localPill" class="sync-pill"><span class="sync-dot"></span><span id="localLabel">Local DB: checking</span></span>
     <span id="googlePill" class="sync-pill"><span class="sync-dot"></span><span id="googleLabel">Google Sheets: waiting</span></span>
     <span id="syncMessage" class="sync-message">Opening local database and checking Google Sheets…</span>
@@ -255,7 +255,7 @@ function setSyncMessage(message,kind='wait'){
   if(pill){pill.classList.toggle('online',kind==='ok'||kind==='reachable');pill.classList.toggle('offline',kind==='error');}
   if(label)label.textContent=kind==='ok'?'Google Sheets: synced':kind==='reachable'?'Google Sheets: connected':kind==='error'?'Google Sheets: issue':kind==='local'?'Google Sheets: not syncing':'Google Sheets: checking';
 }
-function updateNetworkStatus(){const online=navigator.onLine;const p=$('networkPill');p.classList.toggle('online',online);p.classList.toggle('offline',!online);$('networkLabel').textContent=online?'Online':'Offline';if(!online)setSyncMessage('Offline mode — local database remains available.','error');}
+function updateNetworkStatus(){const online=navigator.onLine;const p=$('networkPill'),label=$('networkLabel');if(!p||!label)return;p.classList.toggle('online',online);p.classList.toggle('offline',!online);label.textContent=online?'Online':'Offline';if(!online)setSyncMessage('Offline mode — local database remains available.','error');}
 function setLocalStatus(text,ok=true){$('localLabel').textContent='Local DB: '+text;$('localPill').classList.toggle('online',!!ok);$('localPill').classList.toggle('offline',!ok);}
 function markSyncTime(date=new Date()){const s=date.toLocaleString();$('syncTime').textContent='Last sync: '+s;try{localStorage.setItem('nilBoLastSyncTime',date.toISOString());}catch(e){}}
 function restoreSyncTime(){const v=localStorage.getItem('nilBoLastSyncTime');$('syncTime').textContent='Last sync: '+(v?new Date(v).toLocaleString():'not yet');}
@@ -346,7 +346,7 @@ async function fetchGoogleMaster(){
   for(const action of actions){
     try{
       const url=APPS_SCRIPT_URL+'?action='+encodeURIComponent(action)+'&type=master&ts='+Date.now();
-      const payload=await fetchJsonWithTimeout(url,{method:'GET',cache:'no-store',redirect:'follow'},45000);
+      const payload=await fetchJsonWithTimeout(url,{method:'GET',cache:'no-store',redirect:'follow'},12000);
       const rows=unwrapRows(payload);
       if(rows){
         const normalized=rows.map(canonMaster).filter(r=>r.office_id);
@@ -1191,7 +1191,7 @@ function pdfTable(id, name){
 
 async function googleGet(action,params={}){
   const q=new URLSearchParams({action,...params,ts:String(Date.now())});
-  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},60000);
+  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},15000);
   if(payload&&payload.ok===false)throw new Error(payload.error||('Google Apps Script rejected '+action));
   return payload;
 }
