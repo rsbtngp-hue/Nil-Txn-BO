@@ -248,6 +248,7 @@ const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbxV6bArHWZor5PbIe
 
 const categories=[['cbs_nil_offices','CBS'],['pli_nil_offices','PLI'],['mail_nil_offices','Mail'],['mo_nil_offices','MO'],['stamp_nil_offices','Stamp'],['ippb_nil_offices','IPPB']];
 let master=[], daily=[], bookingRows=[], bookingUploadAt='', view=[], detailRows=[], detailTitle='Nil office details', dirtyDailyMonths=[];
+let googleDailyLatestDate='';
 let adminLoggedIn=false, editingOfficeIndex=-1, bookingDirty=false;
 let excludedOfficeIds=new Set();
 try{excludedOfficeIds=new Set(JSON.parse(localStorage.getItem('nilBoExcludedOfficeIds')||'[]').map(x=>String(x)));}catch(e){excludedOfficeIds=new Set();}
@@ -271,10 +272,12 @@ function updateMisDateStatuses(remoteStatus=null){
   const bookingLocal=latestIsoDate(bookingRows,'booking_date');
   const remoteDaily=remoteStatus&&(remoteStatus.latestTransactionDate||remoteStatus.latest_transaction_date||remoteStatus.dailyLatestDate||remoteStatus.latestDailyDate||remoteStatus.dailyLatestTransactionDate);
   const remoteBooking=remoteStatus&&(remoteStatus.latestBookingDate||remoteStatus.latest_booking_date||remoteStatus.bookingLatestDate||remoteStatus.latestBookingTransactionDate);
-  const dailyDate=normalizeDate(remoteDaily)||dailyLocal;
+  // Prefer the maximum transac_date read directly from the Google "Daily Nil Transactions"
+  // sheet; the status endpoint may not expose a date field.
+  const dailyDate=googleDailyLatestDate||normalizeDate(remoteDaily)||dailyLocal;
   const bookingDate=normalizeBookingDate(remoteBooking)||bookingLocal;
   const d=$('dailyMisUpdated'),b=$('bookingMisUpdated');
-  if(d)d.textContent='Nil Transaction BO — MIS Data updated up to: '+displayMisDate(dailyDate)+(remoteDaily?' • Google Sheets':' • Local saved data');
+  if(d)d.textContent='Nil Transaction BO — MIS Data updated up to: '+displayMisDate(dailyDate)+(googleDailyLatestDate||remoteDaily?' • Google Sheets':' • Local saved data');
   if(b)b.textContent='BO Booking Performance — MIS Data updated up to: '+displayMisDate(bookingDate)+(remoteBooking?' • Google Sheets':' • Local saved data');
 }
 window.addEventListener('online',updateNetworkStatus);window.addEventListener('offline',updateNetworkStatus);
@@ -384,6 +387,10 @@ async function fetchGoogleDataset(type){
   if(payload&&payload.ok===false)throw new Error(payload.error||('Google rejected '+action));
   const rows=unwrapRows(payload);
   if(!rows)throw new Error(action+' did not return a rows array for '+sheet+'.');
+  if(type==='daily'){
+    const sheetDates=rows.map(r=>normalizeDate(val(r,'transac_date'))).filter(v=>/^\\d{4}-\\d{2}-\\d{2}$/.test(v)).sort();
+    if(sheetDates.length)googleDailyLatestDate=sheetDates[sheetDates.length-1];
+  }
   const matching=rows.filter(r=>type==='daily'
     ? !!String(val(r,'office_id')||'').trim() && !!normalizeDate(val(r,'transac_date'))
     : !!normalizeBookingOfficeId(bookingVal(r,'office_id')));
