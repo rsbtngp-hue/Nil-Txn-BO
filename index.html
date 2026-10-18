@@ -52,6 +52,7 @@ tbody tr:nth-child(even){background:#f8fbff}tbody tr:hover{background:#edf6ff}
 .nil{font-weight:bold;color:#c53030}
 .empty{text-align:center;padding:28px;color:var(--muted)}
 .period{background:#fff5d9;border-left:4px solid #eab308;padding:9px 12px;font-size:12px;margin-top:14px;border-radius:4px}
+.mis-updated-status{margin-top:9px;padding:9px 12px;border-radius:8px;border:1px solid #b8d9f5;background:linear-gradient(90deg,#eef7ff,#f5fbff);color:#164f82;font-size:12px;font-weight:800;letter-spacing:.1px}.mis-updated-status::before{content:"●";color:#16805d;margin-right:8px}.booking-mis-status{border-color:#b7e3da;background:linear-gradient(90deg,#eafaf6,#f4fcfa);color:#08706d}.booking-mis-status::before{color:#00a389}
 .hide{display:none}
 .admin-badge{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:20px;background:#e8f7ee;color:#17633a;font-weight:bold;font-size:12px}
 .admin-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:10px}.login-modal .modal{width:min(430px,96vw)}.login-modal .modal-body{padding:20px}.login-modal input{width:100%}.login-error{color:#c53030;font-size:12px;min-height:16px;margin-top:8px}
@@ -178,6 +179,7 @@ body[data-theme="violet"] .app-tab#tabNil{background:linear-gradient(125deg,#704
       <button id="reset" class="secondary">Reset</button>
     </div>
     <div id="period" class="period">Upload data to begin.</div>
+    <div class="mis-updated-status" id="dailyMisUpdated">MIS Data updated up to: Checking latest date…</div>
   </section>
 
   <section id="dashboard" class="hide">
@@ -219,6 +221,7 @@ body[data-theme="violet"] .app-tab#tabNil{background:linear-gradient(125deg,#704
         <button id="bookingReset" class="secondary" type="button">Reset Filters</button>
       </div>
       <div class="period" id="bookingPeriod">No booking CSV uploaded yet. Sign in as administrator to upload a file.</div>
+      <div class="mis-updated-status booking-mis-status" id="bookingMisUpdated">MIS Data updated up to: Checking latest date…</div>
     </section>
     <div class="booking-cards" id="bookingCards"></div>
     <section class="panel">
@@ -259,6 +262,19 @@ function updateNetworkStatus(){const online=navigator.onLine;const p=$('networkP
 function setLocalStatus(text,ok=true){$('localLabel').textContent='Local DB: '+text;$('localPill').classList.toggle('online',!!ok);$('localPill').classList.toggle('offline',!ok);}
 function markSyncTime(date=new Date()){const s=date.toLocaleString();$('syncTime').textContent='Last sync: '+s;try{localStorage.setItem('nilBoLastSyncTime',date.toISOString());}catch(e){}}
 function restoreSyncTime(){const v=localStorage.getItem('nilBoLastSyncTime');$('syncTime').textContent='Last sync: '+(v?new Date(v).toLocaleString():'not yet');}
+function latestIsoDate(rows,field){return (rows||[]).map(r=>String(r&&r[field]||'').trim()).filter(v=>/^\\d{4}-\\d{2}-\\d{2}$/.test(v)).sort().pop()||'';}
+function displayMisDate(iso){if(!iso)return 'Date not available';const m=iso.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);return m?m[3]+'-'+m[2]+'-'+m[1]:iso;}
+function updateMisDateStatuses(remoteStatus=null){
+  const dailyLocal=latestIsoDate(daily,'transac_date');
+  const bookingLocal=latestIsoDate(bookingRows,'booking_date');
+  const remoteDaily=remoteStatus&&(remoteStatus.latestTransactionDate||remoteStatus.latest_transaction_date||remoteStatus.dailyLatestDate||remoteStatus.latestDailyDate||remoteStatus.dailyLatestTransactionDate);
+  const remoteBooking=remoteStatus&&(remoteStatus.latestBookingDate||remoteStatus.latest_booking_date||remoteStatus.bookingLatestDate||remoteStatus.latestBookingTransactionDate);
+  const dailyDate=normalizeDate(remoteDaily)||dailyLocal;
+  const bookingDate=normalizeBookingDate(remoteBooking)||bookingLocal;
+  const d=$('dailyMisUpdated'),b=$('bookingMisUpdated');
+  if(d)d.textContent='MIS Data updated up to: '+displayMisDate(dailyDate)+(remoteDaily?' • Google Sheets':' • Local saved data');
+  if(b)b.textContent='MIS Data updated up to: '+displayMisDate(bookingDate)+(remoteBooking?' • Google Sheets':' • Local saved data');
+}
 window.addEventListener('online',updateNetworkStatus);window.addEventListener('offline',updateNetworkStatus);
 
 // CSV normalizer
@@ -308,7 +324,7 @@ async function load(){
     });
     if(saved){
       master=saved.master||[];daily=saved.daily||[];dirtyDailyMonths=saved.dirtyDailyMonths||[];bookingRows=saved.bookingRows||[];bookingUploadAt=saved.bookingUploadAt||'';bookingDirty=!!saved.bookingDirty||localStorage.getItem('nilBoBookingDirty')==='1';
-      updateMasterUploadUI();render();renderBooking();
+      updateMasterUploadUI();render();renderBooking();updateMisDateStatuses();
       status(`Local database loaded • Office Master: ${master.length.toLocaleString()} • Daily records: ${daily.length.toLocaleString()}`);
     }else status('Local database is ready; no saved records found yet.');
     return true;
@@ -362,7 +378,7 @@ async function fetchGoogleDataset(type){
   if(!navigator.onLine)throw new Error('Browser is offline.');
   const action=type==='daily'?'getDaily':'getBooking';
   const sheet=type==='daily'?'Daily Nil Transactions':'BO Booking Performance';
-  const payload=await googleGet(action);
+  const payload=await googleGet(action,{},type==='daily'?60000:30000);
   if(payload&&payload.ok===false)throw new Error(payload.error||('Google rejected '+action));
   const rows=unwrapRows(payload);
   if(!rows)throw new Error(action+' did not return a rows array for '+sheet+'.');
@@ -394,6 +410,10 @@ async function downloadGoogleDailyAndBooking(){
     catch(e){errors.push((type==='daily'?'Daily Nil Transactions':'BO Booking Performance')+': '+(e.message||e));}
   }
   render();renderBooking();
+  updateMisDateStatuses();
+  // The lightweight status action can report the latest sheet date even when a large
+  // Daily Nil Transactions download times out. Never let this auxiliary check block sync.
+  try{const remote=await Promise.race([getGoogleStatus(),new Promise(resolve=>setTimeout(()=>resolve(null),10000))]);if(remote)updateMisDateStatuses(remote);}catch(e){}
   setLocalStatus('saved • '+daily.length.toLocaleString()+' daily rows • '+bookingRows.length.toLocaleString()+' booking offices',true);
   return {results,errors};
 }
@@ -450,7 +470,7 @@ if(mainSyncControl){
   });
 }
 async function startupSync(){
-  updateNetworkStatus();restoreSyncTime();
+  updateNetworkStatus();restoreSyncTime();updateMisDateStatuses();
   const manualBtn=$('manualGoogleSyncBtn'),syncBtn=$('syncBtn');
   // Never leave manual sync disabled while the automatic startup check is running.
   if(manualBtn)manualBtn.disabled=false;
@@ -1224,9 +1244,9 @@ function pdfTable(id, name){
   const blob=doc.output('blob'),url=URL.createObjectURL(blob),w=window.open(url,'_blank');if(!w){status('Chrome blocked the PDF preview popup. Allow pop-ups for this local HTML and try again.');return;}status('PDF preview opened in Chrome. Use the browser PDF toolbar to print or save.');
 }
 
-async function googleGet(action,params={}){
+async function googleGet(action,params={},timeoutMs=60000){
   const q=new URLSearchParams({action,...params,ts:String(Date.now())});
-  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},15000);
+  const payload=await fetchJsonWithTimeout(APPS_SCRIPT_URL+'?'+q.toString(),{method:'GET',cache:'no-store',redirect:'follow'},timeoutMs);
   if(payload&&payload.ok===false)throw new Error(payload.error||('Google Apps Script rejected '+action));
   return payload;
 }
