@@ -422,6 +422,33 @@ async function manualGoogleSync(){
     if($('syncBtn'))$('syncBtn').disabled=false;
   }
 }
+// Bind sync controls immediately after the sync functions are defined, before the rest of
+// dashboard initialization runs. This keeps manual sync usable if another startup widget fails.
+const manualSyncControl=$('manualGoogleSyncBtn');
+const mainSyncControl=$('syncBtn');
+if(manualSyncControl){
+  manualSyncControl.disabled=false;
+  manualSyncControl.addEventListener('click',()=>{
+    manualGoogleSync().catch(err=>{
+      const msg='Manual Google Sheets sync failed: '+(err&&err.message?err.message:String(err));
+      setSyncMessage(msg,'error');
+      status(msg);
+      if(manualSyncControl)manualSyncControl.disabled=false;
+      if(mainSyncControl)mainSyncControl.disabled=false;
+    });
+  });
+}
+if(mainSyncControl){
+  mainSyncControl.disabled=false;
+  mainSyncControl.addEventListener('click',()=>{
+    Promise.resolve(sync()).catch(err=>{
+      const msg='Sync failed: '+(err&&err.message?err.message:String(err));
+      setSyncMessage(msg,'error');
+      status(msg);
+      if(mainSyncControl)mainSyncControl.disabled=false;
+    });
+  });
+}
 async function startupSync(){
   updateNetworkStatus();restoreSyncTime();
   const manualBtn=$('manualGoogleSyncBtn'),syncBtn=$('syncBtn');
@@ -1266,10 +1293,7 @@ async function sync(){
     setSyncMessage('Google Sheets download/sync not verified. '+(err.message||err),'error');
   }finally{$('syncBtn').disabled=false;}
 }
-$('syncBtn').onclick = sync;
-$('manualGoogleSyncBtn').onclick = manualGoogleSync;
-$('manualGoogleSyncBtn').disabled = false;
-$('syncBtn').disabled = false;
+// Sync controls are bound earlier so they remain responsive during startup.
 $('division').onchange=()=>{ $('subdivision').value='';$('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('subdivision').onchange=()=>{ $('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('so').onchange=()=>{ $('office').value='';refreshHierarchy();apply(); };
