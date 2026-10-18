@@ -1288,12 +1288,13 @@ async function sync(){
     if(months.length)batches.push(['daily',daily.filter(x=>months.includes(String(x.transac_date||'').slice(0,7))),months]);
     if(!batches.length){
       let msg='Google download complete. Daily Nil Transactions: '+daily.length.toLocaleString()+' local rows; BO Booking Performance: '+bookingRows.length.toLocaleString()+' local offices.';
-      try{const st=await getGoogleStatus();msg+=' Remote counts — Office Master '+Number(st.masterRows||0).toLocaleString()+', Daily '+Number(st.dailyRows||0).toLocaleString()+', Booking '+Number(st.bookingRows||0).toLocaleString()+'.';}
+      let remoteStatus=null;
+      try{remoteStatus=await getGoogleStatus();msg+=' Remote counts — Office Master '+Number(remoteStatus.masterRows||0).toLocaleString()+', Daily '+Number(remoteStatus.dailyRows||0).toLocaleString()+', Booking '+Number(remoteStatus.bookingRows||0).toLocaleString()+'.';}
       catch(e){issues.push('Remote status verification: '+(e.message||e));}
       if(issues.length)msg+=' Issues: '+issues.join(' | ');
       const latestDailyDate=latestIsoDate(daily,'transac_date');
       if(latestDailyDate){$('to').value=latestDailyDate;if(!$('from').value)$('from').value=latestDailyDate.slice(0,7)+'-01';}
-      render();renderBooking();updateMisDateStatuses(st||null);
+      render();renderBooking();updateMisDateStatuses(remoteStatus);
       status(msg);markSyncTime();setSyncMessage(msg,issues.length?'error':'ok');return;
     }
     const expectedMaster=master.length,expectedMonthCounts={};
