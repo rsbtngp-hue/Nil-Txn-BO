@@ -388,7 +388,7 @@ async function fetchGoogleDataset(type){
   const rows=unwrapRows(payload);
   if(!rows)throw new Error(action+' did not return a rows array for '+sheet+'.');
   if(type==='daily'){
-    const sheetDates=rows.map(r=>normalizeDate(val(r,'transac_date'))).filter(v=>/^\\d{4}-\\d{2}-\\d{2}$/.test(v)).sort();
+    const sheetDates=rows.map(r=>normalizeDate(val(r,'transac_date'))).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v)).sort();
     if(sheetDates.length)googleDailyLatestDate=sheetDates[sheetDates.length-1];
   }
   const matching=rows.filter(r=>type==='daily'
