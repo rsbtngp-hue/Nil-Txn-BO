@@ -807,7 +807,7 @@ function renderBooking(){
   [...$('bookingCards').querySelectorAll('[data-booking-card]')].forEach(btn=>btn.onclick=()=>cards[Number(btn.dataset.bookingCard)][2]());
   const div=$('bookingDivision').value,sd=$('bookingSubdivision').value,so=$('bookingSo').value,of=$('bookingOffice').value;
   $('bookingPeriod').textContent=bookingRows.length?`Reporting snapshot uploaded ${bookingUploadAt||'at an unknown time'} • ${offices.length.toLocaleString()} BPOs in current filter • ${div||'All Divisions'}${sd?' / '+sd:''}${so?' / '+so:''}${of?' / '+of:''}. Total BPO counts come from Office Master; offices missing from the CSV count as nil Walk-in Customer booking.`:'No booking CSV uploaded yet. BPO totals are from Office Master; upload the CSV to calculate booking performance.';
-  const heads=[subdivisionMode?'Sub Division Name':'Division Name','No of BPOs','Total SDH Target per Month','Total Paid Article Booking','Total Shortfall','Percentage %',"Count BO's Booked with Nil","Count BO's Booked 1 to 5 Article","Count BO's Booked 6 to 10 Article","Count BO's Booked above 10 Article'];
+  const heads=[subdivisionMode?'Sub Division Name':'Division Name','No of BPOs','Total SDH Target per Month','Total Paid Article Booking','Total Shortfall','Percentage %','Count BO\'s Booked with Nil','Count BO\'s Booked 1 to 5 Article','Count BO\'s Booked 6 to 10 Article','Count BO\'s Booked above 10 Article'];
   let html='<thead><tr>'+heads.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>';
   if(!summary.length)html+='<tr><td class="empty" colspan="10">No BPO offices in Office Master match the selected filters.</td></tr>';
   summary.forEach(g=>{
