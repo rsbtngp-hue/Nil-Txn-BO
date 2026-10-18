@@ -424,10 +424,16 @@ async function manualGoogleSync(){
 }
 async function startupSync(){
   updateNetworkStatus();restoreSyncTime();
+  const manualBtn=$('manualGoogleSyncBtn'),syncBtn=$('syncBtn');
+  // Never leave manual sync disabled while the automatic startup check is running.
+  if(manualBtn)manualBtn.disabled=false;
+  if(syncBtn)syncBtn.disabled=false;
   setLocalStatus('opening…',true);
-  setSyncMessage('Loading local data first; Google connection checks have a time limit…');
-  const localLoaded=await load();
+  setSyncMessage('Opening local database…');
+  // A blocked IndexedDB read must not keep the page in its startup state indefinitely.
+  const localLoaded=await Promise.race([load(),new Promise(resolve=>setTimeout(()=>resolve(false),7000))]);
   if(localLoaded)setLocalStatus(master.length?'loaded ('+master.length.toLocaleString()+' offices)':'ready',true);
+  else if(!navigator.onLine)setLocalStatus('offline; local data check timed out',false);
   if(!navigator.onLine){setSyncMessage('Offline — using saved local data. Google Sheets will be checked when online.','error');return;}
   const messages=[];
   setSyncMessage('Checking Google Sheets • Office Master…');
@@ -441,6 +447,8 @@ async function startupSync(){
   if(bookingDirty&&bookingRows.length){
     try{await syncBookingToGoogle();}catch(err){$('bookingStatus').textContent='Booking data remains queued locally; Google sync could not be verified: '+(err.message||err);}
   }
+  if(manualBtn)manualBtn.disabled=false;
+  if(syncBtn)syncBtn.disabled=false;
 }
 
 // Convert DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD standard date format
@@ -1260,6 +1268,8 @@ async function sync(){
 }
 $('syncBtn').onclick = sync;
 $('manualGoogleSyncBtn').onclick = manualGoogleSync;
+$('manualGoogleSyncBtn').disabled = false;
+$('syncBtn').disabled = false;
 $('division').onchange=()=>{ $('subdivision').value='';$('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('subdivision').onchange=()=>{ $('so').value='';$('office').value='';refreshHierarchy();apply(); };
 $('so').onchange=()=>{ $('office').value='';refreshHierarchy();apply(); };
