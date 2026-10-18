@@ -266,7 +266,7 @@ function setLocalStatus(text,ok=true){$('localLabel').textContent='Local DB: '+t
 function markSyncTime(date=new Date()){const s=date.toLocaleString();$('syncTime').textContent='Last sync: '+s;try{localStorage.setItem('nilBoLastSyncTime',date.toISOString());}catch(e){}}
 function restoreSyncTime(){const v=localStorage.getItem('nilBoLastSyncTime');$('syncTime').textContent='Last sync: '+(v?new Date(v).toLocaleString():'not yet');}
 function latestIsoDate(rows,field){return (rows||[]).map(r=>String(r&&r[field]||'').trim()).filter(v=>/^\\d{4}-\\d{2}-\\d{2}$/.test(v)).sort().pop()||'';}
-function displayMisDate(value){if(value===undefined||value===null||String(value).trim()==='')return 'Date not available';const iso=normalizeDate(value);const m=String(iso).match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);return m?m[3]+'-'+m[2]+'-'+m[1]:String(value);}
+function displayMisDate(value){if(value===undefined||value===null||String(value).trim()==='')return 'Date not available';const raw=String(value).trim();const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T|\s)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];const iso=normalizeDate(value);const n=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);return n?n[3]+'-'+n[2]+'-'+n[1]:raw;}
 function updateMisDateStatuses(remoteStatus=null){
   const dailyLocal=latestIsoDate(daily,'transac_date');
   const bookingLocal=latestIsoDate(bookingRows,'booking_date');
