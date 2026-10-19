@@ -379,14 +379,46 @@ async function fetchGoogleMaster(){
   }
   throw lastErr||new Error('No Office Master download endpoint was available.');
 }
+async function fetchAllGoogleDailyPages(){
+  const pageSize=500;
+  let offset=0,totalCount=null;
+  const allRows=[];
+  while(totalCount===null||offset<totalCount){
+    const payload=await googleGet('getDaily',{offset:String(offset),limit:String(pageSize)},60000);
+    if(!payload||payload.ok!==true||!Array.isArray(payload.rows)){
+      throw new Error('Invalid Daily Nil Transactions page response.');
+    }
+    if(totalCount===null){
+      totalCount=Number(payload.totalCount);
+      if(!Number.isFinite(totalCount)||totalCount<0){
+        throw new Error('Google Sheets did not return a valid total row count.');
+      }
+    }
+    if(payload.rows.length===0&&offset<totalCount){
+      throw new Error('Daily download stopped at row '+offset+' of '+totalCount+'. Existing local data was retained.');
+    }
+    allRows.push(...payload.rows);
+    offset+=payload.rows.length;
+    setSyncMessage('Downloading Daily Nil Transactions • '+allRows.length.toLocaleString()+' / '+totalCount.toLocaleString()+' rows');
+  }
+  if(allRows.length!==totalCount){
+    throw new Error('Incomplete download: received '+allRows.length+' of '+totalCount+' rows.');
+  }
+  return allRows;
+}
 async function fetchGoogleDataset(type){
   if(!navigator.onLine)throw new Error('Browser is offline.');
   const action=type==='daily'?'getDaily':'getBooking';
   const sheet=type==='daily'?'Daily Nil Transactions':'BO Booking Performance';
-  const payload=await googleGet(action,{},type==='daily'?60000:30000);
-  if(payload&&payload.ok===false)throw new Error(payload.error||('Google rejected '+action));
-  const rows=unwrapRows(payload);
-  if(!rows)throw new Error(action+' did not return a rows array for '+sheet+'.');
+  let rows;
+  if(type==='daily'){
+    rows=await fetchAllGoogleDailyPages();
+  }else{
+    const payload=await googleGet(action,{},30000);
+    if(payload&&payload.ok===false)throw new Error(payload.error||('Google rejected '+action));
+    rows=unwrapRows(payload);
+    if(!rows)throw new Error(action+' did not return a rows array for '+sheet+'.');
+  }
   if(type==='daily'){
     const sheetDates=rows.map(r=>normalizeDate(val(r,'transac_date'))).filter(v=>/^\d{4}-\d{2}-\d{2}$/.test(v)).sort();
     if(sheetDates.length)googleDailyLatestDate=sheetDates[sheetDates.length-1];
